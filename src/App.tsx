@@ -59,10 +59,12 @@ const typeMeta: Record<AssetType, { label: string; short: string; color: string;
   mcp: { label: 'MCP', short: 'MC', color: '#d97706', soft: '#fff6e6' },
 };
 
-const navItems: Array<{ id: ManagementView; label: string; eyebrow: string; icon: string }> = [
-  { id: 'overview', label: '运营概览', eyebrow: 'Operations Overview', icon: '总' },
-  { id: 'assets', label: '资产目录', eyebrow: 'Asset Catalog', icon: '资' },
-  { id: 'approvals', label: '治理审批', eyebrow: 'Governance Workflow', icon: '审' },
+type LineIconName = 'overview' | 'assets' | 'approval' | 'cockpit' | 'search' | 'building' | 'bell' | 'refresh' | 'plus' | 'chevron';
+
+const navItems: Array<{ id: ManagementView; label: string; icon: LineIconName }> = [
+  { id: 'overview', label: '运营概览', icon: 'overview' },
+  { id: 'assets', label: '资产目录', icon: 'assets' },
+  { id: 'approvals', label: '治理审批', icon: 'approval' },
 ];
 
 const cockpitViewMeta: Record<CockpitView, { label: string; description: string }> = {
@@ -119,6 +121,23 @@ const relativeTime = (value: string) => {
   return hours < 24 ? `${hours} 小时前` : `${Math.round(hours / 24)} 天前`;
 };
 
+const lineIconPaths: Record<LineIconName, React.ReactNode> = {
+  overview: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
+  assets: <><path d="m4 7 8-4 8 4-8 4-8-4Z" /><path d="m4 12 8 4 8-4" /><path d="m4 17 8 4 8-4" /></>,
+  approval: <><path d="M9 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3" /><rect x="9" y="3" width="6" height="4" rx="1" /><path d="m8 14 2.5 2.5L16 11" /></>,
+  cockpit: <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4M7 13l3-3 2 2 4-5" /></>,
+  search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
+  building: <><path d="M4 21V5l8-3v19M12 8h8v13M8 7v1M8 11v1M8 15v1M16 12v1M16 16v1M2 21h20" /></>,
+  bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
+  refresh: <><path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M6.1 9a7 7 0 0 1 11.5-2.7L20 11M4 13l2.4 4.7A7 7 0 0 0 18 15" /></>,
+  plus: <><path d="M12 5v14M5 12h14" /></>,
+  chevron: <path d="m9 18 6-6-6-6" />,
+};
+
+function LineIcon({ name }: { name: LineIconName }) {
+  return <svg aria-hidden="true" className="line-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{lineIconPaths[name]}</svg>;
+}
+
 function readSavedRole(): Role {
   try {
     const saved = window.localStorage.getItem('asset-demo-role') as Role | null;
@@ -139,6 +158,7 @@ function App() {
   const [scope, setScope] = useState<ScopeFilter>(() => getDefaultScope(readSavedRole()));
   const [type, setType] = useState<TypeFilter>('all');
   const [query, setQuery] = useState('');
+  const [globalQuery, setGlobalQuery] = useState('');
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -171,6 +191,12 @@ function App() {
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
+
+  useEffect(() => {
+    document.title = route.kind === 'cockpit'
+      ? '运营大屏 · InsightFlow'
+      : `${navItems.find((item) => item.id === route.view)?.label ?? '运营概览'} · InsightFlow`;
+  }, [route]);
 
   useEffect(() => {
     if (!toast) return;
@@ -223,6 +249,17 @@ function App() {
     }
     setRoute(parseRoute(path));
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const submitGlobalSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setQuery(globalQuery.trim());
+    goToView('assets');
+  };
+
+  const changeAssetQuery = (value: string) => {
+    setQuery(value);
+    setGlobalQuery(value);
   };
 
   const onCreate = async (event: FormEvent<HTMLFormElement>) => {
@@ -324,29 +361,30 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">IF</span>
+          <span className="brand-mark"><i /><b>IF</b></span>
           <span className="brand-copy">
             <strong>InsightFlow</strong>
-            <small>AI 资产运营治理</small>
+            <small>AI 资产运营平台</small>
           </span>
         </div>
 
         <div className="workspace-card">
-          <span className="workspace-avatar">企</span>
-          <span className="workspace-copy"><small>当前工作空间</small><strong>{CURRENT_TEAM}</strong></span>
-          <span className="workspace-status">企业版</span>
+          <span className="workspace-avatar"><LineIcon name="building" /></span>
+          <span className="workspace-copy"><small>当前组织空间</small><strong>{CURRENT_TEAM}</strong></span>
+          <span className="workspace-chevron"><LineIcon name="chevron" /></span>
         </div>
 
         <nav aria-label="主导航">
-          <p className="nav-title">管理工作台</p>
-          {navItems.map((item) => (
+          <p className="nav-title">工作台</p>
+          {navItems.filter((item) => item.id !== 'assets').map((item) => (
             <button
               className={view === item.id ? 'nav-item active' : 'nav-item'}
               key={item.id}
               onClick={() => goToView(item.id)}
               type="button"
+              aria-current={view === item.id ? 'page' : undefined}
             >
-              <span className="nav-icon">{item.icon}</span>
+              <span className="nav-icon"><LineIcon name={item.icon} /></span>
               <span>{item.label}</span>
               {item.id === 'approvals' && pendingVisibleApprovals.length > 0 && (
                 <span className="nav-badge">{pendingVisibleApprovals.length}</span>
@@ -354,16 +392,22 @@ function App() {
             </button>
           ))}
 
-          <a className="nav-item" href="/cockpit" target="_blank" rel="noreferrer">
-            <span className="nav-icon">屏</span>
-            <span>运营大屏</span>
-            <span className="nav-external">↗</span>
-          </a>
-
-          <p className="nav-title nav-section">资产分类</p>
+          <p className="nav-title nav-section">资产运营</p>
+          <button
+            aria-current={view === 'assets' && type === 'all' ? 'page' : undefined}
+            className={view === 'assets' && type === 'all' ? 'nav-item active' : 'nav-item'}
+            onClick={() => { setType('all'); goToView('assets'); }}
+            type="button"
+          >
+            <span className="nav-icon"><LineIcon name="assets" /></span>
+            <span>统一资产目录</span>
+            <span className="nav-count">{visibleAssets.length}</span>
+          </button>
+          <p className="nav-subtitle">按资产类型</p>
           {(Object.keys(typeMeta) as AssetType[]).map((assetType) => (
             <button
-              className={view === 'assets' && type === assetType ? 'nav-item active' : 'nav-item'}
+              aria-current={view === 'assets' && type === assetType ? 'page' : undefined}
+              className={view === 'assets' && type === assetType ? 'nav-item nav-child active' : 'nav-item nav-child'}
               key={assetType}
               onClick={() => { setType(assetType); goToView('assets'); }}
               type="button"
@@ -373,22 +417,48 @@ function App() {
               <span className="nav-count">{typeCounts[assetType]}</span>
             </button>
           ))}
+
+          <p className="nav-title nav-section">运营与决策</p>
+          <a className="nav-item" href="/cockpit" target="_blank" rel="noreferrer">
+            <span className="nav-icon"><LineIcon name="cockpit" /></span>
+            <span>运营大屏</span>
+            <span className="nav-external">↗</span>
+          </a>
         </nav>
 
         <div className="sidebar-footer">
-          <div><span className="connection-dot" /><strong>InsForge 数据底座</strong></div>
-          <small>治理演示环境 · 非生产鉴权</small>
+          <div><span className="connection-dot" /><strong>演示治理规则已生效</strong><span className="footer-status">正常</span></div>
+          <small>页面策略 · 晋级审批 · 操作留痕</small>
         </div>
       </aside>
 
       <main className="main-area">
         <header className="topbar">
-          <div className="topbar-title">
-            <p className="eyebrow">{currentNav.eyebrow}</p>
-            <h1>{currentNav.label}</h1>
+          <div className="topbar-leading">
+            <div className="topbar-context"><span>AI 资产运营</span><i>/</i><strong>{currentNav.label}</strong></div>
+            <form className="global-search" onSubmit={submitGlobalSearch} role="search">
+              <button aria-label="搜索资产" type="submit"><LineIcon name="search" /></button>
+              <input
+                aria-label="全局资产搜索"
+                onChange={(event) => setGlobalQuery(event.target.value)}
+                placeholder="搜索资产、负责人、团队或业务域"
+                value={globalQuery}
+              />
+              <kbd>Enter</kbd>
+            </form>
           </div>
           <div className="topbar-actions">
-            <div className="environment-chip"><i />数据实时同步</div>
+            <div className="organization-chip"><LineIcon name="building" /><span><small>当前组织</small><strong>{CURRENT_TEAM}</strong></span></div>
+            <button
+              aria-label={`待处理审批 ${pendingVisibleApprovals.length} 项`}
+              className="icon-button notification-button"
+              onClick={() => goToView('approvals')}
+              title="待处理审批"
+              type="button"
+            >
+              <LineIcon name="bell" />
+              {pendingVisibleApprovals.length > 0 && <span>{pendingVisibleApprovals.length}</span>}
+            </button>
             <button
               aria-label="刷新数据"
               className="icon-button"
@@ -396,7 +466,7 @@ function App() {
               title="刷新数据"
               type="button"
             >
-              <span className={refreshing ? 'spin' : ''}>↻</span>
+              <span className={refreshing ? 'spin' : ''}><LineIcon name="refresh" /></span>
             </button>
             <label className="role-picker">
               <span className="avatar">叶</span>
@@ -408,7 +478,7 @@ function App() {
               </span>
             </label>
             <button className="primary-button" onClick={() => setCreateOpen(true)} type="button">
-              <span>＋</span> 新建资产
+              <LineIcon name="plus" /> 新建资产
             </button>
           </div>
         </header>
@@ -417,15 +487,15 @@ function App() {
         {toast && <Notice kind="success" message={toast} onClose={() => setToast('')} />}
 
         <section className="content" key={view}>
-          {loading ? <LoadingState /> : (
-            <>
+          <div className="content-inner">
+            {loading ? <LoadingState /> : (
+              <>
               {view === 'overview' && (
                 <Overview
                   assets={filteredAssets}
                   data={data}
                   onAsset={setSelectedAsset}
                   onScope={setScope}
-                  onCockpit={() => window.open('/cockpit', '_blank', 'noopener,noreferrer')}
                   onView={goToView}
                   role={role}
                   scope={scope}
@@ -437,7 +507,7 @@ function App() {
                   assets={filteredAssets}
                   onAsset={setSelectedAsset}
                   onPromote={onPromote}
-                  onQuery={setQuery}
+                  onQuery={changeAssetQuery}
                   onScope={setScope}
                   onType={setType}
                   query={query}
@@ -456,8 +526,9 @@ function App() {
                   submitting={submitting}
                 />
               )}
-            </>
-          )}
+              </>
+            )}
+          </div>
         </section>
       </main>
 
@@ -520,11 +591,10 @@ function ScopeTabs({ scope, onScope }: {
   );
 }
 
-function Overview({ assets, data, onAsset, onCockpit, onScope, onView, role, scope }: {
+function Overview({ assets, data, onAsset, onScope, onView, role, scope }: {
   assets: Asset[];
   data: DashboardData;
   onAsset: (asset: Asset) => void;
-  onCockpit: () => void;
   onScope: (scope: ScopeFilter) => void;
   onView: (view: ManagementView) => void;
   role: Role;
@@ -546,7 +616,7 @@ function Overview({ assets, data, onAsset, onCockpit, onScope, onView, role, sco
         </div>
         <div className="intro-actions">
           <ScopeTabs scope={scope} onScope={onScope} />
-          <button className="secondary-button" onClick={onCockpit} type="button">进入运营大屏 <span>↗</span></button>
+          <a className="secondary-button" href="/cockpit" target="_blank" rel="noreferrer">进入运营大屏 <span>↗</span></a>
         </div>
       </div>
 

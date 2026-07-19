@@ -6,6 +6,14 @@ const stylesheet = readFileSync('src/styles.css', 'utf8');
 beforeAll(() => {
   document.head.innerHTML = `<style>${stylesheet}</style>`;
   document.body.innerHTML = `
+    <aside class="sidebar">
+      <div class="workspace-copy"><strong>研发中心</strong></div>
+      <button class="nav-item">运营概览</button>
+    </aside>
+    <header class="topbar">
+      <div class="topbar-context"><strong>运营概览</strong></div>
+      <form class="global-search"><input value="资产搜索" /></form>
+    </header>
     <div class="page-intro"><p>页面说明</p></div>
     <div class="policy-copy"><strong>权限边界</strong></div>
     <article class="metric-card"><small>指标说明</small></article>
@@ -41,6 +49,10 @@ function fontSize(selector: string) {
 
 describe('readable enterprise typography', () => {
   it.each([
+    '.workspace-copy strong',
+    '.nav-item',
+    '.topbar-context strong',
+    '.global-search input',
     '.page-intro p',
     '.policy-copy strong',
     '.metric-card > small',
