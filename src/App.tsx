@@ -28,6 +28,12 @@ import {
   summarizeGovernance,
 } from './governance';
 import { countByType, summarizeAssets } from './lib/metrics';
+import {
+  normalizePathname,
+  parseRoute,
+  pathForManagementView,
+  type ManagementView,
+} from './routes';
 import type {
   ApprovalRequest,
   Asset,
@@ -39,7 +45,6 @@ import type {
   ScopeFilter,
 } from './types';
 
-type View = 'overview' | 'assets' | 'approvals' | 'cockpit';
 type TypeFilter = AssetType | 'all';
 
 const emptyData: DashboardData = { assets: [], approvals: [], events: [] };
@@ -54,11 +59,10 @@ const typeMeta: Record<AssetType, { label: string; short: string; color: string;
   mcp: { label: 'MCP', short: 'MC', color: '#d97706', soft: '#fff6e6' },
 };
 
-const navItems: Array<{ id: View; label: string; eyebrow: string; icon: string }> = [
+const navItems: Array<{ id: ManagementView; label: string; eyebrow: string; icon: string }> = [
   { id: 'overview', label: '运营概览', eyebrow: 'Operations Overview', icon: '总' },
   { id: 'assets', label: '资产目录', eyebrow: 'Asset Catalog', icon: '资' },
   { id: 'approvals', label: '治理审批', eyebrow: 'Governance Workflow', icon: '审' },
-  { id: 'cockpit', label: '运营大屏', eyebrow: 'Executive Cockpit', icon: '屏' },
 ];
 
 const cockpitViewMeta: Record<CockpitView, { label: string; description: string }> = {
@@ -130,7 +134,7 @@ function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
-  const [view, setView] = useState<View>('overview');
+  const [route, setRoute] = useState(() => parseRoute(window.location.pathname));
   const [role, setRole] = useState<Role>(readSavedRole);
   const [scope, setScope] = useState<ScopeFilter>(() => getDefaultScope(readSavedRole()));
   const [type, setType] = useState<TypeFilter>('all');
@@ -155,6 +159,17 @@ function App() {
 
   useEffect(() => {
     void refresh();
+  }, []);
+
+  useEffect(() => {
+    const canonicalPath = parseRoute(window.location.pathname).path;
+    if (normalizePathname(window.location.pathname) !== canonicalPath) {
+      window.history.replaceState(null, '', canonicalPath);
+    }
+
+    const onPopState = () => setRoute(parseRoute(window.location.pathname));
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
   useEffect(() => {
@@ -200,9 +215,14 @@ function App() {
     notify(`已切换为${roleMeta[nextRole].label}，页面操作按新边界生效`);
   };
 
-  const goToView = (nextView: View) => {
+  const goToView = (nextView: ManagementView) => {
     if (nextView === 'overview') setType('all');
-    setView(nextView);
+    const path = pathForManagementView(nextView);
+    if (normalizePathname(window.location.pathname) !== path) {
+      window.history.pushState(null, '', path);
+    }
+    setRoute(parseRoute(path));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const onCreate = async (event: FormEvent<HTMLFormElement>) => {
@@ -280,13 +300,13 @@ function App() {
     }
   };
 
-  if (view === 'cockpit') {
+  if (route.kind === 'cockpit') {
     return (
       <div className="standalone-page">
         {loading ? <LoadingState fullPage /> : (
           <Cockpit
             data={data}
-            onBack={() => setView('overview')}
+            onBack={() => goToView('overview')}
             onError={setError}
             role={role}
           />
@@ -297,6 +317,7 @@ function App() {
     );
   }
 
+  const view = route.view;
   const currentNav = navItems.find((item) => item.id === view) || navItems[0];
 
   return (
@@ -330,16 +351,21 @@ function App() {
               {item.id === 'approvals' && pendingVisibleApprovals.length > 0 && (
                 <span className="nav-badge">{pendingVisibleApprovals.length}</span>
               )}
-              {item.id === 'cockpit' && <span className="nav-external">↗</span>}
             </button>
           ))}
+
+          <a className="nav-item" href="/cockpit" target="_blank" rel="noreferrer">
+            <span className="nav-icon">屏</span>
+            <span>运营大屏</span>
+            <span className="nav-external">↗</span>
+          </a>
 
           <p className="nav-title nav-section">资产分类</p>
           {(Object.keys(typeMeta) as AssetType[]).map((assetType) => (
             <button
               className={view === 'assets' && type === assetType ? 'nav-item active' : 'nav-item'}
               key={assetType}
-              onClick={() => { setType(assetType); setView('assets'); }}
+              onClick={() => { setType(assetType); goToView('assets'); }}
               type="button"
             >
               <span className="type-dot" style={{ background: typeMeta[assetType].color }} />
@@ -399,7 +425,8 @@ function App() {
                   data={data}
                   onAsset={setSelectedAsset}
                   onScope={setScope}
-                  onView={setView}
+                  onCockpit={() => window.open('/cockpit', '_blank', 'noopener,noreferrer')}
+                  onView={goToView}
                   role={role}
                   scope={scope}
                 />
@@ -493,12 +520,13 @@ function ScopeTabs({ scope, onScope }: {
   );
 }
 
-function Overview({ assets, data, onAsset, onScope, onView, role, scope }: {
+function Overview({ assets, data, onAsset, onCockpit, onScope, onView, role, scope }: {
   assets: Asset[];
   data: DashboardData;
   onAsset: (asset: Asset) => void;
+  onCockpit: () => void;
   onScope: (scope: ScopeFilter) => void;
-  onView: (view: View) => void;
+  onView: (view: ManagementView) => void;
   role: Role;
   scope: ScopeFilter;
 }) {
@@ -518,7 +546,7 @@ function Overview({ assets, data, onAsset, onScope, onView, role, scope }: {
         </div>
         <div className="intro-actions">
           <ScopeTabs scope={scope} onScope={onScope} />
-          <button className="secondary-button" onClick={() => onView('cockpit')} type="button">进入运营大屏 <span>↗</span></button>
+          <button className="secondary-button" onClick={onCockpit} type="button">进入运营大屏 <span>↗</span></button>
         </div>
       </div>
 

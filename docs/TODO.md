@@ -54,10 +54,10 @@
 
 - [x] 从真实入口确认当前页面由内存 `view` 切换，服务端已有 SPA fallback。
 - [x] 阅读 `catl-ai.zip` 的门户布局、导航、色彩和角色框架，确认只参考布局原则。
-- [ ] 新增 `/manage/overview`、`/manage/assets`、`/manage/approvals` 和 `/cockpit` 路由映射。
-- [ ] 支持直接访问、刷新和浏览器前进后退。
-- [ ] 确保大屏不渲染管理门户，且能够返回管理概览。
-- [ ] 补齐路由测试并完成主 Agent 自审。
+- [x] 新增 `/manage/overview`、`/manage/assets`、`/manage/approvals` 和 `/cockpit` 路由映射。
+- [x] 支持直接访问、刷新和浏览器前进后退。
+- [x] 确保大屏不渲染管理门户，且能够返回管理概览。
+- [x] 补齐路由测试并完成主 Agent 自审。
 
 ## Todo 8：白色企业管理门户
 
