@@ -551,3 +551,223 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Readable type scale: optimized for laptops, conference-room screens and projection. */
+.workspace-copy small,
+.workspace-status,
+.nav-title,
+.nav-badge,
+.sidebar-footer small,
+.topbar-title .eyebrow,
+.eyebrow,
+.role-picker-copy small,
+.metric-code,
+.metric-trend,
+.metric-card > small,
+.identity-block small,
+.policy-copy small,
+.identity-block div span,
+.policy-proof small,
+.governance-card small,
+.governance-card p,
+.panel-head p,
+.live-chip,
+.trace-chip,
+.policy-version,
+.distribution-total small,
+.flow-stage small,
+.flow-connector b,
+.flow-pending small,
+.compact-row small,
+.activity-item small,
+.boundary-banner small,
+.boundary-note,
+.select-filter span,
+.result-count span,
+.asset-table-head,
+.asset-name-cell small,
+.owner-cell small,
+.performance-cell small,
+.access-reason,
+.approval-summary p,
+.approval-list-head,
+.approval-asset small,
+.approval-asset p,
+.approval-responsibility small,
+.sla-time,
+.modal-head > div > span,
+.modal-policy small,
+.form-note p,
+.drawer-head small,
+.drawer-access small,
+.drawer-access p,
+.detail-metrics small,
+.drawer-governance b,
+.drawer-governance-note,
+.empty-state p,
+.loading-state p {
+  font-size: 11px !important;
+}
+
+.workspace-copy strong,
+.environment-chip,
+.role-picker select,
+.primary-button,
+.secondary-button,
+.outline-button,
+.ghost-button,
+.page-intro p,
+.intro-badge,
+.scope-tabs button,
+.identity-block strong,
+.policy-copy strong,
+.policy-proof span,
+.metric-card > p,
+.metric-value span,
+.governance-card p,
+.panel-head h3,
+.distribution-total span,
+.bar-label,
+.bar-row strong,
+.call-value,
+.call-column > span,
+.flow-intro h3,
+.flow-intro p,
+.flow-stage > span,
+.flow-stage strong,
+.flow-connector,
+.compact-row strong,
+.status-dot,
+.activity-item strong,
+.activity-item p,
+.text-button,
+.boundary-icon,
+.boundary-banner strong,
+.search-box input,
+.select-filter select,
+.asset-name-cell strong,
+.owner-cell strong,
+.performance-cell strong,
+.scope-tag,
+.lifecycle-tag,
+.access-badge,
+.sla-badge,
+.approval-status,
+.responsibility-chip,
+.approval-summary small,
+.approval-asset strong,
+.approval-responsibility strong,
+.approval-actions button,
+.notice p,
+.modal-policy strong,
+.modal > label,
+.form-grid label,
+.modal input,
+.modal select,
+.modal textarea,
+.form-note strong,
+.drawer > section h3,
+.drawer > section > p,
+.drawer-access strong,
+.drawer dl div,
+.drawer-governance span,
+.empty-state strong,
+.loading-state strong {
+  font-size: 12px !important;
+}
+
+.nav-item { font-size: 13px; }
+.brand-copy small, .sidebar-footer div { font-size: 11px; }
+.page-intro h2 { font-size: 28px; }
+.metric-value strong { font-size: 30px; }
+.metric-card { min-height: 142px; }
+.identity-policy-card { min-height: 86px; }
+.panel-head { min-height: 76px; }
+.governance-card { min-height: 84px; }
+.governance-flow { min-height: 112px; }
+.compact-row { min-height: 70px; }
+.asset-table-head, .approval-list-head { height: 46px; }
+.asset-table-row { min-height: 88px; }
+.approval-row { min-height: 116px; }
+.modal { width: 560px; }
+.drawer { width: 520px; }
+
+.cockpit-brand small,
+.cockpit-view-tabs small,
+.cockpit-clock small,
+.cockpit-context,
+.cockpit-kpi > div span,
+.cockpit-kpi > small,
+.cockpit-kpi p span,
+.cockpit-panel > header span,
+.health-ring span small,
+.health-ring > strong,
+.health-foot,
+.hero-core b,
+.hero-side small,
+.cockpit-subhead small,
+.domain-bar > span,
+.mini-sla,
+.cockpit-approval-list small,
+.risk-list small,
+.audit-ticker small,
+.cockpit-approval-list time,
+.risk-list > div > span:last-child,
+.audit-ticker time,
+.mini-empty,
+.domain-index,
+.cockpit-domain-grid article > div small,
+.cockpit-domain-grid dt,
+.cockpit-footer {
+  font-size: 10px !important;
+}
+
+.cockpit-brand strong,
+.cockpit-view-tabs strong,
+.cockpit-actions button,
+.cockpit-context strong,
+.cockpit-panel > header h3,
+.lifecycle-list > div > span,
+.lifecycle-list strong,
+.hero-core small,
+.hero-side strong,
+.cockpit-subhead span,
+.domain-bar strong,
+.cockpit-approval-list strong,
+.risk-list strong,
+.audit-ticker strong,
+.risk-mark,
+.all-healthy > span,
+.mini-empty span,
+.cockpit-domain-grid article > div strong,
+.cockpit-domain-grid dd,
+.cockpit-footer strong {
+  font-size: 11px !important;
+}
+
+.cockpit-clock strong { font-size: 16px; }
+.cockpit-kpi p strong { font-size: clamp(23px, 1.55vw, 34px); }
+.health-ring span { font-size: 15px; }
+.hero-core strong { font-size: 44px; }
+.cockpit-header { min-height: 78px; }
+.cockpit-view-tabs button { min-height: 50px; }
+.cockpit-actions button { min-height: 38px; }
+.cockpit-context { min-height: 38px; }
+.cockpit-kpi { min-height: 108px; padding: 13px 14px; }
+.cockpit-panel > header { min-height: 46px; }
+.cockpit-main-grid { min-height: 520px; }
+.digital-employee-hero { min-height: 300px; }
+.cockpit-approval-list > div { min-height: 52px; }
+.risk-list > div { min-height: 46px; }
+.audit-ticker > div { min-height: 44px; }
+.cockpit-domain-grid article { min-height: 108px; }
+.cockpit-footer { min-height: 32px; }
+
+.metric-card > small,
+.panel-head p,
+.compact-row small,
+.asset-table-head,
+.asset-name-cell small,
+.approval-asset p {
+  font-size: 12px !important;
+}
