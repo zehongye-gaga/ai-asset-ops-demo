@@ -194,8 +194,8 @@ function App() {
 
   useEffect(() => {
     document.title = route.kind === 'cockpit'
-      ? '运营大屏 · InsightFlow'
-      : `${navItems.find((item) => item.id === route.view)?.label ?? '运营概览'} · InsightFlow`;
+      ? '运营大屏 · CATL'
+      : `${navItems.find((item) => item.id === route.view)?.label ?? '运营概览'} · CATL`;
   }, [route]);
 
   useEffect(() => {
@@ -361,9 +361,9 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark"><i /><b>IF</b></span>
+          <span className="brand-mark"><i /><b>CATL</b></span>
           <span className="brand-copy">
-            <strong>InsightFlow</strong>
+            <strong>CATL</strong>
             <small>AI 资产运营平台</small>
           </span>
         </div>
@@ -943,7 +943,7 @@ function Cockpit({ data, onBack, onError, role }: {
   return (
     <div className={fullscreen ? 'cockpit-root is-fullscreen' : 'cockpit-root'} ref={rootRef}>
       <header className="cockpit-header">
-        <div className="cockpit-brand"><span>IF</span><div><strong>InsightFlow · AI 资产运营中心</strong><small>ENTERPRISE ASSET GOVERNANCE COCKPIT</small></div></div>
+        <div className="cockpit-brand"><span>CATL</span><div><strong>CATL · AI 资产运营中心</strong><small>ENTERPRISE ASSET GOVERNANCE COCKPIT</small></div></div>
         <div className="cockpit-view-tabs">
           {allowedViews.map((item) => <button className={cockpitView === item ? 'active' : ''} key={item} onClick={() => setCockpitView(item)} type="button"><strong>{cockpitViewMeta[item].label}</strong><small>{cockpitViewMeta[item].description}</small></button>)}
         </div>
@@ -1037,7 +1037,7 @@ function Cockpit({ data, onBack, onError, role }: {
         ))}
       </div>
 
-      <footer className="cockpit-footer"><span><i />InsForge 实时数据</span><span>数据刷新于 {clock}</span><strong>资产有边界 · 流程有责任 · 操作有留痕</strong><span>InsightFlow Enterprise</span></footer>
+      <footer className="cockpit-footer"><span><i />InsForge 实时数据</span><span>数据刷新于 {clock}</span><strong>资产有边界 · 流程有责任 · 操作有留痕</strong><span>CATL</span></footer>
     </div>
   );
 }
@@ -1143,7 +1143,7 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
 }
 
 function LoadingState({ fullPage = false }: { fullPage?: boolean }) {
-  return <div className={fullPage ? 'loading-state full-page' : 'loading-state'}><span className="loading-logo">IF</span><strong>正在同步企业资产数据</strong><p>连接 InsForge 资产、审批与活动留痕</p></div>;
+  return <div className={fullPage ? 'loading-state full-page' : 'loading-state'}><span className="loading-logo">CATL</span><strong>正在同步企业资产数据</strong><p>连接 InsForge 资产、审批与活动留痕</p></div>;
 }
 
 export default App;

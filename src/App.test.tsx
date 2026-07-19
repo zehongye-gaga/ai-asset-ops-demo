@@ -32,6 +32,8 @@ describe('management and cockpit layout boundary', () => {
     expect(await screen.findByRole('navigation', { name: '主导航' })).toBeInTheDocument();
     expect(screen.getByRole('search')).toBeInTheDocument();
     expect(screen.getByText('当前组织')).toBeInTheDocument();
+    expect(screen.getAllByText('CATL')).toHaveLength(2);
+    expect(document.title).toBe('运营概览 · CATL');
     expect(screen.getByRole('link', { name: /^运营大屏/ })).toHaveAttribute('href', '/cockpit');
     expect(screen.getByRole('link', { name: /^运营大屏/ })).toHaveAttribute('target', '_blank');
     expect(screen.queryByText('ENTERPRISE ASSET GOVERNANCE COCKPIT')).not.toBeInTheDocument();
@@ -83,6 +85,9 @@ describe('management and cockpit layout boundary', () => {
     render(<App />);
 
     expect(await screen.findByText('ENTERPRISE ASSET GOVERNANCE COCKPIT')).toBeInTheDocument();
+    expect(screen.getByText('CATL · AI 资产运营中心')).toBeInTheDocument();
+    expect(screen.getAllByText('CATL')).toHaveLength(2);
+    expect(document.title).toBe('运营大屏 · CATL');
     expect(screen.queryByRole('navigation', { name: '主导航' })).not.toBeInTheDocument();
     expect(screen.queryByRole('search')).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/cockpit');

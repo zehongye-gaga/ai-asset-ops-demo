@@ -4,7 +4,7 @@
 
 ## 1. 优先级
 
-两份客户 PRD 是功能、业务对象、流程和验收的唯一需求来源。InsightFlow 与 Agent Matrix Infra 的材料只用于指导实现质量，不能据此新增客户没有提出的 Agent Runtime、Eval、知识平台、工具网关或其他产品模块。
+两份客户 PRD 是功能、业务对象、流程和验收的唯一需求来源。CATL 与 Agent Matrix Infra 的材料只用于指导实现质量，不能据此新增客户没有提出的 Agent Runtime、Eval、知识平台、工具网关或其他产品模块。
 
 发生冲突时按以下顺序处理：
 
@@ -27,7 +27,7 @@
 
 ## 3. 明确不做
 
-- 不把客户的 AI 资产运营系统改造成 InsightFlow 或 Agent Matrix Infra 产品展示。
+- 不把客户的 AI 资产运营系统改造成 CATL 或 Agent Matrix Infra 产品展示。
 - 不为展示架构水平增加没有数据支撑的指标、对象或流程。
 - 不把演示角色切换描述成生产鉴权。
 - 不把前端多次写入描述成服务端事务。
