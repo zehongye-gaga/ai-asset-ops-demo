@@ -174,6 +174,7 @@ function App() {
 
   return (
     <div className="app-shell">
+      <div className="aurora" aria-hidden="true"><i /><i /><i /></div>
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">A</span>
@@ -244,7 +245,7 @@ function App() {
         {error && <div className="error-banner"><span>!</span>{error}<button onClick={() => setError('')} type="button">×</button></div>}
         {toast && <div className="toast">✓ {toast}</div>}
 
-        <section className="content">
+        <section className="content" key={view}>
           {loading ? <LoadingState /> : (
             <>
               {view === 'overview' && (
@@ -381,7 +382,7 @@ function Overview({ assets, counts, data, metrics, onAsset, onScope, scope, setV
 }
 
 function MetricCard({ label, value, suffix, delta, tone, icon }: { label: string; value: string | number; suffix: string; delta: string; tone: string; icon: string }) {
-  return <article className={`metric-card ${tone}`}><div className="metric-icon">{icon}</div><div><p>{label}</p><h3>{value}<small>{suffix}</small></h3><span>↗ {delta}</span></div></article>;
+  return <article className={`metric-card ${tone}`}><div className="metric-icon">{icon}</div><div><p>{label}</p><h3 className="gradient-number">{value}<small>{suffix}</small></h3><span>↗ {delta}</span></div></article>;
 }
 
 function TypeIcon({ type }: { type: AssetType }) {
