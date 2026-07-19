@@ -75,6 +75,13 @@ export async function submitPromotion(asset: Asset) {
 
 export async function handleApproval(request: ApprovalRequest, approve: boolean) {
   const handledAt = new Date().toISOString();
+  const { data: assetRows, error: lookupError } = await insforge.database
+    .from('assets')
+    .select()
+    .eq('id', request.asset_id);
+  throwIfError(lookupError, '读取待审批资产失败');
+  const asset = assetRows?.[0] as Asset | undefined;
+
   const { error: approvalError } = await insforge.database
     .from('approval_requests')
     .update({ status: approve ? 'approved' : 'rejected', handled_at: handledAt })
@@ -93,7 +100,7 @@ export async function handleApproval(request: ApprovalRequest, approve: boolean)
     event_type: 'approval',
     title: approve ? '资产晋级已通过' : '资产晋级已驳回',
     detail: `${request.asset_name} · ${request.from_scope} → ${request.target_scope}`,
-    asset_type: 'agent',
+    asset_type: asset?.asset_type || 'agent',
     severity: approve ? 'success' : 'warning',
   });
   throwIfError(eventError, '记录审批动态失败');
