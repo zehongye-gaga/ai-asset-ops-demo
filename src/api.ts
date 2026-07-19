@@ -1,5 +1,13 @@
 import { insforge } from './lib/insforge';
-import type { ApprovalRequest, Asset, AssetScope, AssetType, DashboardData } from './types';
+import { CURRENT_TEAM, roleMeta } from './access-control';
+import type {
+  ActionContext,
+  ApprovalRequest,
+  Asset,
+  AssetScope,
+  AssetType,
+  DashboardData,
+} from './types';
 
 function throwIfError(error: Error | null, context: string) {
   if (error) throw new Error(`${context}：${error.message}`);
@@ -31,7 +39,7 @@ export async function createAsset(input: {
   assetType: AssetType;
   scope: AssetScope;
   description: string;
-}) {
+}, context: ActionContext) {
   const { data, error } = await insforge.database
     .from('assets')
     .insert({
@@ -41,8 +49,8 @@ export async function createAsset(input: {
       source: 'AI 资产运营系统',
       status: 'online',
       lifecycle: '开发调试中',
-      owner_name: '叶泽宏',
-      team_name: 'AI 创新中心',
+      owner_name: context.actorName,
+      team_name: CURRENT_TEAM,
       domain: '技术研发',
       calls: 0,
       success_rate: 100,
@@ -54,16 +62,26 @@ export async function createAsset(input: {
     })
     .select();
   throwIfError(error, '创建资产失败');
-  return data?.[0] as Asset;
+  const asset = data?.[0] as Asset;
+
+  const { error: eventError } = await insforge.database.from('activity_events').insert({
+    event_type: 'asset_created',
+    title: '数字资产已创建',
+    detail: `${context.actorName}（${roleMeta[context.actorRole].label}）创建「${asset.name}」· ${asset.scope}`,
+    asset_type: asset.asset_type,
+    severity: 'success',
+  });
+  throwIfError(eventError, '记录创建留痕失败');
+  return asset;
 }
 
-export async function submitPromotion(asset: Asset) {
+export async function submitPromotion(asset: Asset, context: ActionContext) {
   const targetScope: AssetScope = asset.scope === 'personal' ? 'team' : 'common';
   const approverRole = asset.scope === 'personal' ? 'team_admin' : 'system_admin';
   const { error } = await insforge.database.from('approval_requests').insert({
     asset_id: asset.id,
     asset_name: asset.name,
-    requester: asset.owner_name,
+    requester: context.actorName,
     from_scope: asset.scope,
     target_scope: targetScope,
     status: 'pending',
@@ -71,9 +89,22 @@ export async function submitPromotion(asset: Asset) {
     note: `申请将「${asset.name}」晋级为${targetScope === 'team' ? '团队' : '通用'}资产`,
   });
   throwIfError(error, '提交晋级失败');
+
+  const { error: eventError } = await insforge.database.from('activity_events').insert({
+    event_type: 'promotion_submitted',
+    title: '资产晋级已提交',
+    detail: `${context.actorName}（${roleMeta[context.actorRole].label}）提交「${asset.name}」· ${asset.scope} → ${targetScope}`,
+    asset_type: asset.asset_type,
+    severity: 'info',
+  });
+  throwIfError(eventError, '记录晋级留痕失败');
 }
 
-export async function handleApproval(request: ApprovalRequest, approve: boolean) {
+export async function handleApproval(
+  request: ApprovalRequest,
+  approve: boolean,
+  context: ActionContext,
+) {
   const handledAt = new Date().toISOString();
   const { data: assetRows, error: lookupError } = await insforge.database
     .from('assets')
@@ -99,7 +130,7 @@ export async function handleApproval(request: ApprovalRequest, approve: boolean)
   const { error: eventError } = await insforge.database.from('activity_events').insert({
     event_type: 'approval',
     title: approve ? '资产晋级已通过' : '资产晋级已驳回',
-    detail: `${request.asset_name} · ${request.from_scope} → ${request.target_scope}`,
+    detail: `${context.actorName}（${roleMeta[context.actorRole].label}）${approve ? '通过' : '驳回'}「${request.asset_name}」· ${request.from_scope} → ${request.target_scope}`,
     asset_type: asset?.asset_type || 'agent',
     severity: approve ? 'success' : 'warning',
   });

@@ -1,6 +1,13 @@
 export type AssetType = 'agent' | 'application' | 'skill' | 'knowledge' | 'mcp';
 export type AssetScope = 'common' | 'team' | 'personal';
-export type Role = 'personal' | 'team_admin' | 'system_admin';
+export type Role = 'personal' | 'team_admin' | 'operator' | 'system_admin';
+export type ScopeFilter = AssetScope | 'all';
+export type CockpitView = 'global' | 'team' | 'personal';
+
+export interface ActionContext {
+  actorName: string;
+  actorRole: Role;
+}
 
 export interface Asset {
   id: string;

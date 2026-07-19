@@ -1,50 +1,91 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
+import {
+  CURRENT_TEAM,
+  CURRENT_USER,
+  canCreateAsset,
+  canCreateInScope,
+  canHandleApproval,
+  canPromoteAsset,
+  canViewAsset,
+  getApprovalResponsibility,
+  getAssetAccess,
+  getCockpitViews,
+  getCreateAssetTypes,
+  getCreateScopes,
+  getDefaultScope,
+  getPromotionTarget,
+  isApprovalVisible,
+  roleMeta,
+  scopeLabels,
+} from './access-control';
 import { createAsset, handleApproval, loadDashboardData, submitPromotion } from './api';
+import {
+  countByDomain,
+  countByLifecycle,
+  filterAssetsForCockpit,
+  getApprovalSla,
+  summarizeGovernance,
+} from './governance';
 import { countByType, summarizeAssets } from './lib/metrics';
 import type {
   ApprovalRequest,
   Asset,
   AssetScope,
   AssetType,
+  CockpitView,
   DashboardData,
   Role,
+  ScopeFilter,
 } from './types';
 
 type View = 'overview' | 'assets' | 'approvals' | 'cockpit';
-type ScopeFilter = AssetScope | 'all';
 type TypeFilter = AssetType | 'all';
 
 const emptyData: DashboardData = { assets: [], approvals: [], events: [] };
 
-const roleLabels: Record<Role, string> = {
-  personal: '个人用户',
-  team_admin: '团队管理员',
-  system_admin: '系统管理员',
+const roles: Role[] = ['system_admin', 'operator', 'team_admin', 'personal'];
+
+const typeMeta: Record<AssetType, { label: string; short: string; color: string; soft: string }> = {
+  agent: { label: '智能体', short: 'AI', color: '#2563eb', soft: '#eaf2ff' },
+  application: { label: '应用', short: 'AP', color: '#0891b2', soft: '#e8f8fb' },
+  skill: { label: 'Skills', short: 'SK', color: '#7c3aed', soft: '#f2edff' },
+  knowledge: { label: '知识库', short: 'KB', color: '#059669', soft: '#e8f8f2' },
+  mcp: { label: 'MCP', short: 'MC', color: '#d97706', soft: '#fff6e6' },
 };
 
-const scopeLabels: Record<AssetScope, string> = {
+const navItems: Array<{ id: View; label: string; eyebrow: string; icon: string }> = [
+  { id: 'overview', label: '运营概览', eyebrow: 'Operations Overview', icon: '总' },
+  { id: 'assets', label: '资产目录', eyebrow: 'Asset Catalog', icon: '资' },
+  { id: 'approvals', label: '治理审批', eyebrow: 'Governance Workflow', icon: '审' },
+  { id: 'cockpit', label: '运营大屏', eyebrow: 'Executive Cockpit', icon: '屏' },
+];
+
+const cockpitViewMeta: Record<CockpitView, { label: string; description: string }> = {
+  global: { label: '全局视角', description: '集团资产与治理态势' },
+  team: { label: '团队视角', description: '团队资产运营与准入' },
+  personal: { label: '个人视角', description: '本人资产与使用成效' },
+};
+
+const scopeFilterLabels: Record<ScopeFilter, string> = {
+  all: '全部资产',
   common: '通用资产',
   team: '团队资产',
   personal: '个人资产',
 };
 
-const typeMeta: Record<AssetType, { label: string; icon: string; color: string }> = {
-  agent: { label: '智能体', icon: 'AI', color: '#745cff' },
-  application: { label: '应用', icon: 'AP', color: '#20b8cd' },
-  skill: { label: 'Skills', icon: 'SK', color: '#f0a03c' },
-  knowledge: { label: '知识库', icon: 'KB', color: '#55a36d' },
-  mcp: { label: 'MCP', icon: 'MC', color: '#ed6f91' },
+const lifecycleTone = (value: string) => {
+  if (value.includes('正式') || value.includes('运营')) return 'success';
+  if (value.includes('审核') || value.includes('调试')) return 'warning';
+  if (value.includes('下线') || value.includes('废弃')) return 'danger';
+  return 'neutral';
 };
 
-const navItems: Array<{ id: View; label: string; icon: string }> = [
-  { id: 'overview', label: '运营概览', icon: '⌂' },
-  { id: 'assets', label: '资产目录', icon: '◇' },
-  { id: 'approvals', label: '晋级审批', icon: '✓' },
-  { id: 'cockpit', label: '运营大屏', icon: '⌁' },
-];
-
 const formatNumber = (value: number) =>
-  new Intl.NumberFormat('zh-CN', { notation: value > 99999 ? 'compact' : 'standard' }).format(value);
+  new Intl.NumberFormat('zh-CN', {
+    notation: Math.abs(value) > 99_999 ? 'compact' : 'standard',
+    maximumFractionDigits: 1,
+  }).format(value);
 
 const formatMoney = (value: number) =>
   new Intl.NumberFormat('zh-CN', {
@@ -53,12 +94,35 @@ const formatMoney = (value: number) =>
     maximumFractionDigits: 0,
   }).format(value);
 
+const formatDateTime = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+};
+
 const relativeTime = (value: string) => {
-  const minutes = Math.max(1, Math.round((Date.now() - new Date(value).getTime()) / 60000));
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '时间未知';
+  const minutes = Math.max(1, Math.round((Date.now() - date.getTime()) / 60_000));
   if (minutes < 60) return `${minutes} 分钟前`;
   const hours = Math.round(minutes / 60);
   return hours < 24 ? `${hours} 小时前` : `${Math.round(hours / 24)} 天前`;
 };
+
+function readSavedRole(): Role {
+  try {
+    const saved = window.localStorage.getItem('asset-demo-role') as Role | null;
+    return saved && roles.includes(saved) ? saved : 'system_admin';
+  } catch {
+    return 'system_admin';
+  }
+}
 
 function App() {
   const [data, setData] = useState<DashboardData>(emptyData);
@@ -67,8 +131,8 @@ function App() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [view, setView] = useState<View>('overview');
-  const [role, setRole] = useState<Role>('system_admin');
-  const [scope, setScope] = useState<ScopeFilter>('all');
+  const [role, setRole] = useState<Role>(readSavedRole);
+  const [scope, setScope] = useState<ScopeFilter>(() => getDefaultScope(readSavedRole()));
   const [type, setType] = useState<TypeFilter>('all');
   const [query, setQuery] = useState('');
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
@@ -95,49 +159,76 @@ function App() {
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(''), 2600);
+    const timer = window.setTimeout(() => setToast(''), 2800);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const scopedAssets = useMemo(() => {
-    return data.assets.filter((asset) => {
-      const matchesScope = scope === 'all' || asset.scope === scope;
-      const matchesType = type === 'all' || asset.asset_type === type;
-      const haystack = `${asset.name} ${asset.description} ${asset.source} ${asset.team_name}`.toLowerCase();
-      return matchesScope && matchesType && haystack.includes(query.trim().toLowerCase());
-    });
-  }, [data.assets, query, scope, type]);
+  const visibleAssets = useMemo(
+    () => data.assets.filter((asset) => canViewAsset(role, asset)),
+    [data.assets, role],
+  );
 
-  const metrics = useMemo(() => summarizeAssets(scopedAssets), [scopedAssets]);
-  const typeCounts = useMemo(() => countByType(scopedAssets), [scopedAssets]);
-  const pendingApprovals = data.approvals.filter((item) => item.status === 'pending');
-  const visibleApprovals = data.approvals.filter((item) => {
-    if (role === 'personal') return item.requester === '叶泽宏' || item.from_scope === 'personal';
-    return item.approver_role === role;
-  });
+  const filteredAssets = useMemo(() => visibleAssets.filter((asset) => {
+    const matchesScope = scope === 'all' || asset.scope === scope;
+    const matchesType = type === 'all' || asset.asset_type === type;
+    const search = `${asset.name} ${asset.description} ${asset.source} ${asset.team_name} ${asset.owner_name} ${asset.domain}`.toLowerCase();
+    return matchesScope && matchesType && search.includes(query.trim().toLowerCase());
+  }), [query, scope, type, visibleAssets]);
+
+  const visibleApprovals = useMemo(
+    () => data.approvals.filter((request) => isApprovalVisible(
+      role,
+      request,
+      data.assets.find((asset) => asset.id === request.asset_id),
+    )),
+    [data.approvals, data.assets, role],
+  );
+  const pendingVisibleApprovals = visibleApprovals.filter((request) => request.status === 'pending');
+  const typeCounts = useMemo(() => countByType(visibleAssets), [visibleAssets]);
+  const actionContext = { actorName: CURRENT_USER, actorRole: role };
 
   const notify = (message: string) => setToast(message);
 
   const changeRole = (nextRole: Role) => {
     setRole(nextRole);
-    if (nextRole === 'personal') setScope('personal');
-    if (nextRole === 'team_admin') setScope('team');
-    if (nextRole === 'system_admin') setScope('all');
+    setScope(getDefaultScope(nextRole));
+    try {
+      window.localStorage.setItem('asset-demo-role', nextRole);
+    } catch {
+      // The role still changes for this session when storage is unavailable.
+    }
+    notify(`已切换为${roleMeta[nextRole].label}，页面操作按新边界生效`);
+  };
+
+  const goToView = (nextView: View) => {
+    if (nextView === 'overview') setType('all');
+    setView(nextView);
   };
 
   const onCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const requestedScope = String(form.get('scope')) as AssetScope;
+    const requestedType = String(form.get('assetType')) as AssetType;
+    if (!canCreateInScope(role, requestedScope)) {
+      setError(`${roleMeta[role].label}不能直接创建${scopeLabels[requestedScope]}`);
+      return;
+    }
+    if (!canCreateAsset(role, requestedScope, requestedType)) {
+      setError(`${roleMeta[role].label}不能在${scopeLabels[requestedScope]}中直接创建${typeMeta[requestedType].label}`);
+      return;
+    }
+
     setSubmitting(true);
     try {
       await createAsset({
-        name: String(form.get('name')),
-        assetType: String(form.get('assetType')) as AssetType,
-        scope: String(form.get('scope')) as AssetScope,
-        description: String(form.get('description')),
-      });
+        name: String(form.get('name')).trim(),
+        assetType: requestedType,
+        scope: requestedScope,
+        description: String(form.get('description')).trim(),
+      }, actionContext);
       setCreateOpen(false);
-      notify('资产已写入 InsForge');
+      notify('资产已写入 InsForge，创建行为已留痕');
       await refresh(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '创建资产失败');
@@ -147,10 +238,22 @@ function App() {
   };
 
   const onPromote = async (asset: Asset) => {
+    if (!canPromoteAsset(role, asset)) {
+      setError(`${roleMeta[role].label}无权提交该资产晋级`);
+      return;
+    }
+    const hasPending = data.approvals.some(
+      (request) => request.asset_id === asset.id && request.status === 'pending',
+    );
+    if (hasPending) {
+      setError('该资产已有待处理晋级申请，请勿重复提交');
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await submitPromotion(asset);
-      notify(`「${asset.name}」已提交晋级`);
+      await submitPromotion(asset, actionContext);
+      notify(`「${asset.name}」已进入${getPromotionTarget(asset).approver}审批队列`);
       await refresh(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '提交晋级失败');
@@ -160,10 +263,15 @@ function App() {
   };
 
   const onApproval = async (request: ApprovalRequest, approve: boolean) => {
+    const requestedAsset = data.assets.find((asset) => asset.id === request.asset_id);
+    if (!canHandleApproval(role, request, requestedAsset)) {
+      setError(`${roleMeta[role].label}不是该审批节点的责任角色`);
+      return;
+    }
     setSubmitting(true);
     try {
-      await handleApproval(request, approve);
-      notify(approve ? '审批通过，资产范围已更新' : '审批已驳回');
+      await handleApproval(request, approve, actionContext);
+      notify(approve ? '审批通过，资产范围与审计动态已更新' : '审批已驳回，结果已进入活动留痕');
       await refresh(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '审批失败');
@@ -172,33 +280,60 @@ function App() {
     }
   };
 
+  if (view === 'cockpit') {
+    return (
+      <div className="standalone-page">
+        {loading ? <LoadingState fullPage /> : (
+          <Cockpit
+            data={data}
+            onBack={() => setView('overview')}
+            onError={setError}
+            role={role}
+          />
+        )}
+        {error && <Notice kind="error" message={error} onClose={() => setError('')} />}
+        {toast && <Notice kind="success" message={toast} onClose={() => setToast('')} />}
+      </div>
+    );
+  }
+
+  const currentNav = navItems.find((item) => item.id === view) || navItems[0];
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">A</span>
-          <span><strong>AI 资产</strong><small>运营管理平台</small></span>
+          <span className="brand-mark">IF</span>
+          <span className="brand-copy">
+            <strong>InsightFlow</strong>
+            <small>AI 资产运营治理</small>
+          </span>
         </div>
+
         <div className="workspace-card">
-          <span className="workspace-avatar">智</span>
-          <span><small>当前空间</small><strong>AI 创新中心</strong></span>
-          <span className="chevron">⌄</span>
+          <span className="workspace-avatar">企</span>
+          <span className="workspace-copy"><small>当前工作空间</small><strong>{CURRENT_TEAM}</strong></span>
+          <span className="workspace-status">企业版</span>
         </div>
+
         <nav aria-label="主导航">
-          <p className="nav-title">工作台</p>
+          <p className="nav-title">管理工作台</p>
           {navItems.map((item) => (
             <button
               className={view === item.id ? 'nav-item active' : 'nav-item'}
               key={item.id}
-              onClick={() => setView(item.id)}
+              onClick={() => goToView(item.id)}
               type="button"
             >
-              <span className="nav-icon">{item.icon}</span>{item.label}
-              {item.id === 'approvals' && pendingApprovals.length > 0 && (
-                <span className="nav-badge">{pendingApprovals.length}</span>
+              <span className="nav-icon">{item.icon}</span>
+              <span>{item.label}</span>
+              {item.id === 'approvals' && pendingVisibleApprovals.length > 0 && (
+                <span className="nav-badge">{pendingVisibleApprovals.length}</span>
               )}
+              {item.id === 'cockpit' && <span className="nav-external">↗</span>}
             </button>
           ))}
+
           <p className="nav-title nav-section">资产分类</p>
           {(Object.keys(typeMeta) as AssetType[]).map((assetType) => (
             <button
@@ -208,276 +343,709 @@ function App() {
               type="button"
             >
               <span className="type-dot" style={{ background: typeMeta[assetType].color }} />
-              {typeMeta[assetType].label}
-              <span className="nav-count">{countByType(data.assets)[assetType]}</span>
+              <span>{typeMeta[assetType].label}</span>
+              <span className="nav-count">{typeCounts[assetType]}</span>
             </button>
           ))}
         </nav>
+
         <div className="sidebar-footer">
-          <span className="connection-dot" /> InsForge 实时连接
-          <small>Rainbond · App 140</small>
+          <div><span className="connection-dot" /><strong>InsForge 数据底座</strong></div>
+          <small>治理演示环境 · 非生产鉴权</small>
         </div>
       </aside>
 
       <main className="main-area">
         <header className="topbar">
-          <div>
-            <p className="eyebrow">数字资产运营中心</p>
-            <h1>{navItems.find((item) => item.id === view)?.label}</h1>
+          <div className="topbar-title">
+            <p className="eyebrow">{currentNav.eyebrow}</p>
+            <h1>{currentNav.label}</h1>
           </div>
           <div className="topbar-actions">
-            <button className="icon-button" title="刷新数据" onClick={() => void refresh(true)} type="button">
+            <div className="environment-chip"><i />数据实时同步</div>
+            <button
+              aria-label="刷新数据"
+              className="icon-button"
+              onClick={() => void refresh(true)}
+              title="刷新数据"
+              type="button"
+            >
               <span className={refreshing ? 'spin' : ''}>↻</span>
             </button>
             <label className="role-picker">
               <span className="avatar">叶</span>
-              <span><small>演示身份</small>
+              <span className="role-picker-copy">
+                <small>演示身份 · {roleMeta[role].shortLabel}</small>
                 <select value={role} onChange={(event) => changeRole(event.target.value as Role)} aria-label="演示身份">
-                  {(Object.keys(roleLabels) as Role[]).map((item) => <option value={item} key={item}>{roleLabels[item]}</option>)}
+                  {roles.map((item) => <option value={item} key={item}>{roleMeta[item].label}</option>)}
                 </select>
               </span>
             </label>
-            <button className="primary-button" onClick={() => setCreateOpen(true)} type="button">＋ 新建资产</button>
+            <button className="primary-button" onClick={() => setCreateOpen(true)} type="button">
+              <span>＋</span> 新建资产
+            </button>
           </div>
         </header>
 
-        {error && <div className="error-banner"><span>!</span>{error}<button onClick={() => setError('')} type="button">×</button></div>}
-        {toast && <div className="toast">✓ {toast}</div>}
+        {error && <Notice kind="error" message={error} onClose={() => setError('')} />}
+        {toast && <Notice kind="success" message={toast} onClose={() => setToast('')} />}
 
         <section className="content" key={view}>
           {loading ? <LoadingState /> : (
             <>
               {view === 'overview' && (
                 <Overview
-                  assets={scopedAssets}
-                  counts={typeCounts}
+                  assets={filteredAssets}
                   data={data}
-                  metrics={metrics}
                   onAsset={setSelectedAsset}
                   onScope={setScope}
+                  onView={setView}
+                  role={role}
                   scope={scope}
-                  setView={setView}
                 />
               )}
               {view === 'assets' && (
                 <AssetCatalog
-                  assets={scopedAssets}
-                  query={query}
-                  scope={scope}
-                  type={type}
+                  approvals={data.approvals}
+                  assets={filteredAssets}
+                  onAsset={setSelectedAsset}
+                  onPromote={onPromote}
                   onQuery={setQuery}
                   onScope={setScope}
                   onType={setType}
-                  onAsset={setSelectedAsset}
-                  onPromote={onPromote}
+                  query={query}
                   role={role}
+                  scope={scope}
                   submitting={submitting}
+                  type={type}
                 />
               )}
               {view === 'approvals' && (
                 <ApprovalCenter
                   approvals={visibleApprovals}
                   assets={data.assets}
-                  role={role}
                   onApproval={onApproval}
+                  role={role}
                   submitting={submitting}
                 />
               )}
-              {view === 'cockpit' && <Cockpit data={data} />}
             </>
           )}
         </section>
       </main>
 
       {createOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setCreateOpen(false)}>
-          <form className="modal" onSubmit={onCreate} onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-head"><div><p className="eyebrow">Create asset</p><h2>新建数字资产</h2></div><button onClick={() => setCreateOpen(false)} type="button">×</button></div>
-            <label>资产名称<input name="name" required placeholder="例如：采购分析助手" /></label>
-            <div className="form-grid">
-              <label>资产类型<select name="assetType" defaultValue="agent">{(Object.keys(typeMeta) as AssetType[]).map((item) => <option key={item} value={item}>{typeMeta[item].label}</option>)}</select></label>
-              <label>所属范围<select name="scope" defaultValue={role === 'personal' ? 'personal' : role === 'team_admin' ? 'team' : 'common'}>{(Object.keys(scopeLabels) as AssetScope[]).map((item) => <option key={item} value={item}>{scopeLabels[item]}</option>)}</select></label>
-            </div>
-            <label>资产说明<textarea name="description" required rows={4} placeholder="说明资产解决什么问题、供谁使用" /></label>
-            <div className="form-note"><span>i</span>提交后将直接写入当前 InsForge 数据库，可在资产目录中查看。</div>
-            <div className="modal-actions"><button className="secondary-button" onClick={() => setCreateOpen(false)} type="button">取消</button><button className="primary-button" disabled={submitting} type="submit">{submitting ? '正在写入…' : '创建资产'}</button></div>
-          </form>
-        </div>
+        <CreateAssetModal
+          onClose={() => setCreateOpen(false)}
+          onSubmit={onCreate}
+          role={role}
+          submitting={submitting}
+        />
       )}
 
-      {selectedAsset && <AssetDrawer asset={selectedAsset} role={role} onClose={() => setSelectedAsset(null)} onPromote={onPromote} submitting={submitting} />}
+      {selectedAsset && (
+        <AssetDrawer
+          asset={selectedAsset}
+          hasPendingApproval={data.approvals.some(
+            (request) => request.asset_id === selectedAsset.id && request.status === 'pending',
+          )}
+          onClose={() => setSelectedAsset(null)}
+          onPromote={onPromote}
+          role={role}
+          submitting={submitting}
+        />
+      )}
     </div>
   );
 }
 
-function ScopeTabs({ scope, onScope }: { scope: ScopeFilter; onScope: (scope: ScopeFilter) => void }) {
-  return <div className="scope-tabs">
-    {([['all', '全部视角'], ['common', '通用'], ['team', '团队'], ['personal', '个人']] as const).map(([value, label]) => (
-      <button className={scope === value ? 'active' : ''} key={value} onClick={() => onScope(value)} type="button">{label}</button>
-    ))}
-  </div>;
+function Notice({ kind, message, onClose }: {
+  kind: 'error' | 'success';
+  message: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className={`notice ${kind}`} role={kind === 'error' ? 'alert' : 'status'}>
+      <span>{kind === 'error' ? '!' : '✓'}</span>
+      <p>{message}</p>
+      <button aria-label="关闭提示" onClick={onClose} type="button">×</button>
+    </div>
+  );
 }
 
-function Overview({ assets, counts, data, metrics, onAsset, onScope, scope, setView }: {
+function ScopeTabs({ scope, onScope }: {
+  scope: ScopeFilter;
+  onScope: (scope: ScopeFilter) => void;
+}) {
+  return (
+    <div className="scope-tabs" aria-label="资产范围">
+      {(Object.keys(scopeFilterLabels) as ScopeFilter[]).map((value) => (
+        <button
+          className={scope === value ? 'active' : ''}
+          key={value}
+          onClick={() => onScope(value)}
+          type="button"
+        >
+          {scopeFilterLabels[value]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Overview({ assets, data, onAsset, onScope, onView, role, scope }: {
   assets: Asset[];
-  counts: Record<AssetType, number>;
   data: DashboardData;
-  metrics: ReturnType<typeof summarizeAssets>;
   onAsset: (asset: Asset) => void;
   onScope: (scope: ScopeFilter) => void;
+  onView: (view: View) => void;
+  role: Role;
   scope: ScopeFilter;
-  setView: (view: View) => void;
 }) {
-  const maxCount = Math.max(...Object.values(counts), 1);
-  return <>
-    <div className="section-heading">
-      <div><h2>资产运营全景</h2><p>统一查看资产规模、调用表现与当前运营动态</p></div>
-      <ScopeTabs scope={scope} onScope={onScope} />
-    </div>
-    <div className="metric-grid">
-      <MetricCard label="数字员工" value={metrics.digitalEmployees} suffix="个" delta="较上月 +12.6%" tone="violet" icon="AI" />
-      <MetricCard label="本月调用" value={formatNumber(metrics.calls)} suffix="次" delta="较上月 +8.2%" tone="cyan" icon="↗" />
-      <MetricCard label="平均成功率" value={metrics.successRate.toFixed(2)} suffix="%" delta="服务整体稳定" tone="green" icon="✓" />
-      <MetricCard label="本月总成本" value={formatMoney(metrics.cost)} suffix="" delta="预算使用 68.4%" tone="orange" icon="¥" />
-    </div>
-    <div className="overview-grid">
-      <article className="panel asset-distribution">
-        <div className="panel-head"><div><h3>资产构成</h3><p>五类数字资产实时分布</p></div><span className="live-label"><i />实时</span></div>
-        <div className="distribution-content">
-          <div className="donut" style={{ '--donut-total': Math.max(assets.length, 1) } as React.CSSProperties}>
-            <span><strong>{assets.length}</strong><small>资产总数</small></span>
+  const metrics = summarizeAssets(assets);
+  const counts = countByType(assets);
+  const governance = summarizeGovernance(data, assets);
+  const totalCalls = Math.max(metrics.calls, 1);
+  const topAssets = [...assets].sort((left, right) => Number(right.calls) - Number(left.calls)).slice(0, 5);
+
+  return (
+    <>
+      <div className="page-intro">
+        <div>
+          <div className="intro-badge"><i />企业 AI 资产治理 · 实时运营</div>
+          <h2>让资产可见、权限可解释、流程可追溯</h2>
+          <p>统一查看五类数字资产的运营表现，并从当前身份出发判断管理边界与治理责任。</p>
+        </div>
+        <div className="intro-actions">
+          <ScopeTabs scope={scope} onScope={onScope} />
+          <button className="secondary-button" onClick={() => onView('cockpit')} type="button">进入运营大屏 <span>↗</span></button>
+        </div>
+      </div>
+
+      <section className="identity-policy-card">
+        <div className="identity-block">
+          <span className="identity-avatar">叶</span>
+          <div><small>当前演示身份</small><strong>{roleMeta[role].label}</strong><span>{CURRENT_USER} · {CURRENT_TEAM}</span></div>
+        </div>
+        <div className="policy-divider" />
+        <div className="policy-copy"><small>数据与操作边界</small><strong>{roleMeta[role].boundary}</strong></div>
+        <div className="policy-copy"><small>当前治理责任</small><strong>{roleMeta[role].responsibility}</strong></div>
+        <div className="policy-proof"><span>策略已生效</span><small>生产环境需接入企业身份与服务端权限策略</small></div>
+      </section>
+
+      <div className="metric-grid">
+        <MetricCard label="在运数字员工" value={formatNumber(metrics.digitalEmployees)} suffix="个" note="智能体 + 应用" tone="blue" code="DE" />
+        <MetricCard label="本月累计调用" value={formatNumber(metrics.calls)} suffix="次" note={`${metrics.online} 项资产在线`} tone="cyan" code="API" />
+        <MetricCard label="平均成功率" value={metrics.successRate.toFixed(2)} suffix="%" note={metrics.successRate >= 98 ? '服务质量稳定' : '低于治理基线'} tone="green" code="SLA" />
+        <MetricCard label="本月运行成本" value={formatMoney(metrics.cost)} suffix="" note="按资产归集口径" tone="violet" code="¥" />
+      </div>
+
+      <div className="governance-strip">
+        <GovernanceCard label="治理建档覆盖" value={`${governance.governanceCoverage.toFixed(0)}%`} note={`${assets.length} 项当前范围资产`} tone="blue" />
+        <GovernanceCard label="待处理审批" value={governance.pending} note={governance.overdue ? `${governance.overdue} 项已超时` : '当前无超时'} tone={governance.overdue ? 'amber' : 'green'} />
+        <GovernanceCard label="风险关注资产" value={governance.riskAssets.length} note="离线、低成功率或待审核" tone={governance.riskAssets.length ? 'red' : 'green'} />
+        <GovernanceCard label="近期操作留痕" value={governance.auditEvents} note="创建、晋级与审批事件" tone="violet" />
+      </div>
+
+      <div className="overview-grid">
+        <article className="panel asset-distribution">
+          <PanelHeader title="资产构成" subtitle="当前视角下五类资产的真实分布" action={<span className="live-chip"><i />实时</span>} />
+          <div className="distribution-layout">
+            <div className="distribution-total"><strong>{assets.length}</strong><span>资产总量</span><small>{metrics.online} 项在线</small></div>
+            <div className="distribution-bars">
+              {(Object.keys(typeMeta) as AssetType[]).map((assetType) => {
+                const ratio = assets.length ? (counts[assetType] / assets.length) * 100 : 0;
+                return (
+                  <div className="bar-row" key={assetType}>
+                    <span className="bar-label"><i style={{ background: typeMeta[assetType].color }} />{typeMeta[assetType].label}</span>
+                    <div className="bar-track"><span style={{ '--bar-width': `${ratio}%`, background: typeMeta[assetType].color } as CSSProperties} /></div>
+                    <strong>{counts[assetType]}</strong>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div className="type-bars">
-            {(Object.keys(typeMeta) as AssetType[]).map((assetType) => (
-              <button key={assetType} type="button" onClick={() => setView('assets')}>
-                <span className="legend-dot" style={{ background: typeMeta[assetType].color }} />
-                <span className="bar-label">{typeMeta[assetType].label}</span>
-                <span className="bar-track"><i style={{ width: `${Math.max(8, (counts[assetType] / maxCount) * 100)}%`, background: typeMeta[assetType].color }} /></span>
-                <strong>{counts[assetType]}</strong>
+        </article>
+
+        <article className="panel call-structure">
+          <PanelHeader title="调用结构" subtitle="按资产类型统计本月调用贡献" action={<span className="panel-kpi">{formatNumber(metrics.calls)} 次</span>} />
+          <div className="call-bars">
+            {(Object.keys(typeMeta) as AssetType[]).map((assetType) => {
+              const calls = assets.filter((asset) => asset.asset_type === assetType)
+                .reduce((sum, asset) => sum + Number(asset.calls), 0);
+              const height = Math.max(8, (calls / totalCalls) * 100);
+              return (
+                <div className="call-column" key={assetType}>
+                  <div className="call-value">{formatNumber(calls)}</div>
+                  <div className="call-track"><span style={{ '--bar-height': `${height}%`, background: typeMeta[assetType].color } as CSSProperties} /></div>
+                  <span>{typeMeta[assetType].label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </article>
+      </div>
+
+      <GovernanceFlow pending={governance.pending} />
+
+      <div className="overview-bottom-grid">
+        <article className="panel key-assets">
+          <PanelHeader title="重点资产运行" subtitle="按本月调用量排序" action={<button className="text-button" onClick={() => onView('assets')} type="button">查看全部 →</button>} />
+          <div className="compact-table">
+            {topAssets.length ? topAssets.map((asset) => (
+              <button className="compact-row" key={asset.id} onClick={() => onAsset(asset)} type="button">
+                <AssetGlyph type={asset.asset_type} />
+                <span className="compact-main"><strong>{asset.name}</strong><small>{asset.domain} · {asset.owner_name}</small></span>
+                <span className={`status-dot ${asset.is_online ? 'online' : 'offline'}`}><i />{asset.is_online ? '在线' : '离线'}</span>
+                <span><strong>{formatNumber(Number(asset.calls))}</strong><small>本月调用</small></span>
+                <span><strong>{Number(asset.success_rate).toFixed(1)}%</strong><small>成功率</small></span>
+                <span className="row-arrow">›</span>
               </button>
-            ))}
+            )) : <EmptyState title="当前范围暂无资产" detail="切换资产视角后再查看" />}
           </div>
-        </div>
-      </article>
-      <article className="panel trend-panel">
-        <div className="panel-head"><div><h3>调用趋势</h3><p>近 7 日资产调用变化</p></div><span className="pill">全部资产</span></div>
-        <div className="trend-chart" aria-label="近七日调用趋势图">
-          {[42, 56, 51, 67, 62, 79, 88].map((height, index) => <div key={index} className="trend-column"><i style={{ height: `${height}%` }} /><span>{['一', '二', '三', '四', '五', '六', '日'][index]}</span></div>)}
-          <svg viewBox="0 0 700 180" preserveAspectRatio="none" aria-hidden="true"><polyline points="10,125 125,98 240,107 355,77 470,88 585,48 690,27" /></svg>
-        </div>
-      </article>
-    </div>
-    <div className="overview-grid lower-grid">
-      <article className="panel">
-        <div className="panel-head"><div><h3>重点资产</h3><p>按调用量排序</p></div><button className="text-button" onClick={() => setView('assets')} type="button">查看全部 →</button></div>
-        <div className="asset-mini-list">{assets.slice(0, 5).map((asset) => <button key={asset.id} onClick={() => onAsset(asset)} type="button"><TypeIcon type={asset.asset_type} /><span><strong>{asset.name}</strong><small>{asset.source} · {scopeLabels[asset.scope]}</small></span><span className="mini-stat"><strong>{formatNumber(Number(asset.calls))}</strong><small>调用</small></span><span className={asset.is_online ? 'status online' : 'status'}>{asset.is_online ? '运行中' : '未上线'}</span></button>)}</div>
-      </article>
-      <article className="panel activity-panel">
-        <div className="panel-head"><div><h3>运营动态</h3><p>来自 InsForge 的最新事件</p></div></div>
-        <div className="timeline">{data.events.slice(0, 6).map((event) => <div key={event.id}><span className={`event-dot ${event.severity}`} /><span><strong>{event.title}</strong><p>{event.detail}</p><small>{relativeTime(event.created_at)}</small></span></div>)}</div>
-      </article>
-    </div>
-  </>;
+        </article>
+
+        <article className="panel activity-panel">
+          <PanelHeader title="治理动态" subtitle="关键操作与运行事件留痕" action={<span className="trace-chip">追踪 {data.events.length}</span>} />
+          <div className="activity-list">
+            {data.events.slice(0, 6).map((event) => (
+              <div className="activity-item" key={event.id}>
+                <span className={`activity-marker ${event.severity}`} />
+                <div><strong>{event.title}</strong><p>{event.detail}</p><small>{relativeTime(event.created_at)} · Trace {event.id.slice(0, 8)}</small></div>
+              </div>
+            ))}
+            {!data.events.length && <EmptyState title="暂无治理动态" detail="创建或审批资产后会在这里留痕" />}
+          </div>
+        </article>
+      </div>
+    </>
+  );
 }
 
-function MetricCard({ label, value, suffix, delta, tone, icon }: { label: string; value: string | number; suffix: string; delta: string; tone: string; icon: string }) {
-  return <article className={`metric-card ${tone}`}><div className="metric-icon">{icon}</div><div><p>{label}</p><h3>{value}<small>{suffix}</small></h3><span>↗ {delta}</span></div></article>;
+function MetricCard({ label, value, suffix, note, tone, code }: {
+  label: string;
+  value: string;
+  suffix: string;
+  note: string;
+  tone: string;
+  code: string;
+}) {
+  return (
+    <article className={`metric-card ${tone}`}>
+      <div className="metric-top"><span className="metric-code">{code}</span><span className="metric-trend">运营口径</span></div>
+      <p>{label}</p>
+      <div className="metric-value"><strong>{value}</strong><span>{suffix}</span></div>
+      <small>{note}</small>
+    </article>
+  );
 }
 
-function TypeIcon({ type }: { type: AssetType }) {
-  return <span className="type-icon" style={{ color: typeMeta[type].color, background: `${typeMeta[type].color}16` }}>{typeMeta[type].icon}</span>;
+function GovernanceCard({ label, value, note, tone }: {
+  label: string;
+  value: string | number;
+  note: string;
+  tone: string;
+}) {
+  return (
+    <article className="governance-card">
+      <span className={`governance-icon ${tone}`}>✓</span>
+      <div><small>{label}</small><strong>{value}</strong><p>{note}</p></div>
+    </article>
+  );
 }
 
-function AssetCatalog({ assets, query, scope, type, onQuery, onScope, onType, onAsset, onPromote, role, submitting }: {
+function GovernanceFlow({ pending }: { pending: number }) {
+  return (
+    <article className="panel governance-flow">
+      <div className="flow-intro"><span className="flow-icon">策</span><div><h3>资产准入治理流程</h3><p>范围越大，责任越高；所有晋级均经过独立责任角色确认。</p></div></div>
+      <div className="flow-stage"><span>01</span><div><strong>个人资产</strong><small>本人负责质量与材料</small></div></div>
+      <div className="flow-connector"><b>团队管理员</b><span>审批 →</span></div>
+      <div className="flow-stage"><span>02</span><div><strong>团队资产</strong><small>团队内复用与运营</small></div></div>
+      <div className="flow-connector"><b>运营人员</b><span>审批 →</span></div>
+      <div className="flow-stage"><span>03</span><div><strong>通用资产</strong><small>全组织复用与治理</small></div></div>
+      <div className="flow-pending"><strong>{pending}</strong><small>当前待处理</small></div>
+    </article>
+  );
+}
+
+function AssetCatalog({ approvals, assets, onAsset, onPromote, onQuery, onScope, onType, query, role, scope, submitting, type }: {
+  approvals: ApprovalRequest[];
   assets: Asset[];
-  query: string;
-  scope: ScopeFilter;
-  type: TypeFilter;
-  onQuery: (query: string) => void;
+  onAsset: (asset: Asset) => void;
+  onPromote: (asset: Asset) => void;
+  onQuery: (value: string) => void;
   onScope: (scope: ScopeFilter) => void;
   onType: (type: TypeFilter) => void;
-  onAsset: (asset: Asset) => void;
+  query: string;
+  role: Role;
+  scope: ScopeFilter;
+  submitting: boolean;
+  type: TypeFilter;
+}) {
+  return (
+    <>
+      <div className="page-intro compact">
+        <div><h2>统一资产目录</h2><p>同一目录承载五类资产；可见范围与管理权限分别判断。</p></div>
+        <ScopeTabs scope={scope} onScope={onScope} />
+      </div>
+
+      <section className="boundary-banner">
+        <span className="boundary-icon">权</span>
+        <div><small>当前权限边界 · {roleMeta[role].label}</small><strong>{roleMeta[role].boundary}</strong></div>
+        <span className="boundary-note">页面策略演示</span>
+      </section>
+
+      <article className="panel catalog-panel">
+        <div className="catalog-toolbar">
+          <label className="search-box"><span>⌕</span><input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="搜索名称、负责人、团队或业务域" /></label>
+          <label className="select-filter"><span>资产类型</span><select value={type} onChange={(event) => onType(event.target.value as TypeFilter)}><option value="all">全部类型</option>{(Object.keys(typeMeta) as AssetType[]).map((assetType) => <option key={assetType} value={assetType}>{typeMeta[assetType].label}</option>)}</select></label>
+          <div className="result-count"><strong>{assets.length}</strong><span>项结果</span></div>
+        </div>
+
+        <div className="asset-table">
+          <div className="asset-table-head">
+            <span>资产</span><span>范围 / 生命周期</span><span>负责人 / 团队</span><span>运行表现</span><span>当前权限</span><span>操作</span>
+          </div>
+          {assets.map((asset) => {
+            const access = getAssetAccess(role, asset);
+            const canPromote = canPromoteAsset(role, asset);
+            const hasPending = approvals.some((request) => request.asset_id === asset.id && request.status === 'pending');
+            return (
+              <div className="asset-table-row" key={asset.id}>
+                <div className="asset-name-cell"><AssetGlyph type={asset.asset_type} /><span><strong>{asset.name}</strong><small>{typeMeta[asset.asset_type].label} · {asset.version} · {asset.source}</small></span></div>
+                <div><span className={`scope-tag ${asset.scope}`}>{scopeLabels[asset.scope]}</span><span className={`lifecycle-tag ${lifecycleTone(asset.lifecycle)}`}>{asset.lifecycle}</span></div>
+                <div className="owner-cell"><strong>{asset.owner_name}</strong><small>{asset.team_name} · {asset.domain}</small></div>
+                <div className="performance-cell"><strong>{formatNumber(Number(asset.calls))} 次</strong><small>{Number(asset.success_rate).toFixed(1)}% · {Number(asset.avg_latency).toFixed(1)}s</small></div>
+                <div><span className={`access-badge ${access.level}`}><i />{access.label}</span><small className="access-reason">{access.reason}</small></div>
+                <div className="table-actions">
+                  <button className="ghost-button" onClick={() => onAsset(asset)} type="button">详情</button>
+                  {canPromote && <button className="outline-button" disabled={submitting || hasPending} onClick={() => void onPromote(asset)} type="button">{hasPending ? '审批中' : '申请晋级'}</button>}
+                </div>
+              </div>
+            );
+          })}
+          {!assets.length && <EmptyState title="未找到匹配资产" detail="调整范围、类型或搜索条件后重试" />}
+        </div>
+      </article>
+    </>
+  );
+}
+
+function ApprovalCenter({ approvals, assets, onApproval, role, submitting }: {
+  approvals: ApprovalRequest[];
+  assets: Asset[];
+  onApproval: (request: ApprovalRequest, approve: boolean) => void;
+  role: Role;
+  submitting: boolean;
+}) {
+  const pending = approvals.filter((request) => request.status === 'pending');
+  const approved = approvals.filter((request) => request.status === 'approved');
+  const overdue = pending.filter((request) => getApprovalSla(request).state === 'overdue');
+  const isPersonal = role === 'personal';
+
+  return (
+    <>
+      <div className="page-intro compact">
+        <div><h2>{isPersonal ? '我的晋级申请' : '资产准入与晋级审批'}</h2><p>{isPersonal ? '查看本人资产申请的当前节点与处理结果。' : `当前由${roleMeta[role].label}负责：${roleMeta[role].responsibility}`}</p></div>
+        <span className="responsibility-chip">职责已匹配 · {roleMeta[role].shortLabel}</span>
+      </div>
+
+      <div className="approval-summary-grid">
+        <ApprovalSummary label="当前可见" value={approvals.length} note="含本人申请与责任队列" tone="blue" />
+        <ApprovalSummary label="待处理" value={pending.length} note="等待责任角色决策" tone="amber" />
+        <ApprovalSummary label="已通过" value={approved.length} note="资产范围已更新" tone="green" />
+        <ApprovalSummary label="已超时" value={overdue.length} note="演示 SLA：24 小时" tone={overdue.length ? 'red' : 'green'} />
+      </div>
+
+      <GovernanceFlow pending={pending.length} />
+
+      <article className="panel approval-panel">
+        <PanelHeader title="审批与申请记录" subtitle="展示责任节点、范围变化、时效和结果" action={<span className="policy-version">Policy v1.1</span>} />
+        <div className="approval-list-head"><span>申请资产</span><span>范围变化</span><span>责任节点</span><span>流程时效</span><span>处理</span></div>
+        <div className="approval-list">
+          {approvals.map((request) => {
+            const asset = assets.find((candidate) => candidate.id === request.asset_id);
+            const sla = getApprovalSla(request);
+            const canHandle = canHandleApproval(role, request, asset);
+            return (
+              <div className="approval-row" key={request.id}>
+                <div className="approval-asset"><AssetGlyph type={asset?.asset_type || 'agent'} /><span><strong>{request.asset_name}</strong><small>{request.requester} · {formatDateTime(request.submitted_at)}</small><p>{request.note}</p></span></div>
+                <div className="approval-scope-flow"><span className={`scope-tag ${request.from_scope}`}>{scopeLabels[request.from_scope]}</span><b>→</b><span className={`scope-tag ${request.target_scope}`}>{scopeLabels[request.target_scope]}</span></div>
+                <div className="approval-responsibility"><strong>{getApprovalResponsibility(request)}</strong><small>提交人与审批职责分离</small></div>
+                <div><span className={`sla-badge ${sla.state}`}>{sla.label}</span><small className="sla-time">{request.status === 'pending' ? `已等待 ${sla.hours.toFixed(1)}h` : `处理于 ${request.handled_at ? formatDateTime(request.handled_at) : '—'}`}</small></div>
+                <div className="approval-actions">
+                  {canHandle ? <><button disabled={submitting} onClick={() => void onApproval(request, false)} type="button">驳回</button><button className="approve" disabled={submitting} onClick={() => void onApproval(request, true)} type="button">通过</button></> : <span className={`approval-status ${request.status}`}>{request.status === 'pending' ? '等待责任人' : request.status === 'approved' ? '已通过' : '已驳回'}</span>}
+                </div>
+              </div>
+            );
+          })}
+          {!approvals.length && <EmptyState title="当前身份没有可见审批" detail="切换演示身份可查看对应责任队列" />}
+        </div>
+      </article>
+    </>
+  );
+}
+
+function ApprovalSummary({ label, value, note, tone }: {
+  label: string;
+  value: number;
+  note: string;
+  tone: string;
+}) {
+  return <article className="approval-summary"><span className={`summary-mark ${tone}`} /><div><small>{label}</small><strong>{value}</strong><p>{note}</p></div></article>;
+}
+
+function Cockpit({ data, onBack, onError, role }: {
+  data: DashboardData;
+  onBack: () => void;
+  onError: (message: string) => void;
+  role: Role;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const allowedViews = getCockpitViews(role);
+  const [cockpitView, setCockpitView] = useState<CockpitView>(allowedViews[0]);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const onFullscreenChange = () => setFullscreen(document.fullscreenElement === rootRef.current);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (rootRef.current?.requestFullscreen) await rootRef.current.requestFullscreen();
+      else throw new Error('当前浏览器不支持全屏 API');
+    } catch (cause) {
+      onError(cause instanceof Error ? `进入全屏失败：${cause.message}` : '进入全屏失败');
+    }
+  };
+
+  const roleVisibleAssets = data.assets.filter((asset) => canViewAsset(role, asset));
+  const assets = filterAssetsForCockpit(roleVisibleAssets, cockpitView, CURRENT_USER, CURRENT_TEAM);
+  const metrics = summarizeAssets(assets);
+  const governance = summarizeGovernance(data, assets);
+  const lifecycles = Object.entries(countByLifecycle(assets)).sort((left, right) => right[1] - left[1]);
+  const domains = Object.entries(countByDomain(assets)).sort((left, right) => right[1].calls - left[1].calls);
+  const maxDomainCalls = Math.max(...domains.map(([, item]) => item.calls), 1);
+  const assetIds = new Set(assets.map((asset) => asset.id));
+  const approvals = data.approvals.filter((request) => assetIds.has(request.asset_id));
+  const pending = approvals.filter((request) => request.status === 'pending');
+  const riskAssets = governance.riskAssets.slice(0, 4);
+  const clock = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(now);
+  const date = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' }).format(now);
+
+  return (
+    <div className={fullscreen ? 'cockpit-root is-fullscreen' : 'cockpit-root'} ref={rootRef}>
+      <header className="cockpit-header">
+        <div className="cockpit-brand"><span>IF</span><div><strong>InsightFlow · AI 资产运营中心</strong><small>ENTERPRISE ASSET GOVERNANCE COCKPIT</small></div></div>
+        <div className="cockpit-view-tabs">
+          {allowedViews.map((item) => <button className={cockpitView === item ? 'active' : ''} key={item} onClick={() => setCockpitView(item)} type="button"><strong>{cockpitViewMeta[item].label}</strong><small>{cockpitViewMeta[item].description}</small></button>)}
+        </div>
+        <div className="cockpit-actions">
+          <div className="cockpit-clock"><strong>{clock}</strong><small>{date}</small></div>
+          <button onClick={() => void toggleFullscreen()} type="button">{fullscreen ? '退出全屏' : '全屏显示'} <span>⛶</span></button>
+          <button onClick={onBack} type="button">返回管理 <span>↩</span></button>
+        </div>
+      </header>
+
+      <div className="cockpit-context">
+        <div><span className="pulse-dot" /><strong>{cockpitViewMeta[cockpitView].label}</strong><span>{cockpitViewMeta[cockpitView].description}</span></div>
+        <div><span>当前身份</span><strong>{roleMeta[role].label}</strong><span>数据口径随视角统一切换</span></div>
+      </div>
+
+      <div className="cockpit-kpi-grid">
+        <CockpitKpi label="在运数字员工" value={formatNumber(metrics.digitalEmployees)} suffix="个" code="DE" tone="blue" />
+        <CockpitKpi label="资产总量" value={formatNumber(assets.length)} suffix="项" code="AS" tone="cyan" />
+        <CockpitKpi label="本月调用" value={formatNumber(metrics.calls)} suffix="次" code="API" tone="blue" />
+        <CockpitKpi label="服务成功率" value={metrics.successRate.toFixed(2)} suffix="%" code="SLA" tone="green" />
+        <CockpitKpi label="风险关注" value={formatNumber(governance.riskAssets.length)} suffix="项" code="RISK" tone={governance.riskAssets.length ? 'red' : 'green'} />
+        <CockpitKpi label="本月成本" value={formatMoney(metrics.cost)} suffix="" code="COST" tone="violet" />
+        <CockpitKpi label="待审批" value={formatNumber(governance.pending)} suffix="项" code="FLOW" tone={governance.pending ? 'amber' : 'green'} />
+        <CockpitKpi label="资产在线率" value={governance.onlineRate.toFixed(1)} suffix="%" code="LIVE" tone="cyan" />
+      </div>
+
+      <div className="cockpit-main-grid">
+        <div className="cockpit-column left">
+          <CockpitPanel title="生命周期分布" code="LIFECYCLE">
+            <div className="lifecycle-list">
+              {lifecycles.slice(0, 6).map(([name, count]) => (
+                <div key={name}><span><i className={lifecycleTone(name)} />{name}</span><div><b style={{ '--bar-width': `${assets.length ? (count / assets.length) * 100 : 0}%` } as CSSProperties} /></div><strong>{count}</strong></div>
+              ))}
+              {!lifecycles.length && <MiniEmpty label="暂无生命周期数据" />}
+            </div>
+          </CockpitPanel>
+          <CockpitPanel title="治理健康" code="GOVERNANCE">
+            <div className="health-grid">
+              <HealthRing label="建档覆盖" value={governance.governanceCoverage} tone="#2563eb" />
+              <HealthRing label="在线率" value={governance.onlineRate} tone="#0891b2" />
+              <HealthRing label="审批时效" value={pending.length ? Math.max(0, 100 - (governance.overdue / pending.length) * 100) : 100} tone="#059669" />
+            </div>
+            <div className="health-foot"><span><i className="green" />健康运行 {assets.length - governance.riskAssets.length}</span><span><i className="red" />风险关注 {governance.riskAssets.length}</span></div>
+          </CockpitPanel>
+        </div>
+
+        <div className="cockpit-column center">
+          <CockpitPanel title="数字员工与业务运行态势" code="OPERATIONS">
+            <div className="digital-employee-hero">
+              <div className="hero-orbit orbit-one" /><div className="hero-orbit orbit-two" />
+              <span className="hero-core"><small>在运数字员工</small><strong>{metrics.digitalEmployees}</strong><b>DIGITAL EMPLOYEES</b></span>
+              <div className="hero-side left"><span><small>在线资产</small><strong>{metrics.online}</strong></span><span><small>业务域</small><strong>{governance.domainCount}</strong></span><span><small>审计留痕</small><strong>{governance.auditEvents}</strong></span></div>
+              <div className="hero-side right"><span><small>平均时延</small><strong>{governance.averageLatency.toFixed(1)}s</strong></span><span><small>成功率</small><strong>{metrics.successRate.toFixed(1)}%</strong></span><span><small>治理覆盖</small><strong>{governance.governanceCoverage.toFixed(0)}%</strong></span></div>
+            </div>
+            <div className="domain-distribution">
+              <div className="cockpit-subhead"><span>业务域调用分布</span><small>按本月调用量排序</small></div>
+              {domains.slice(0, 6).map(([name, item]) => (
+                <div className="domain-bar" key={name}><span>{name}</span><div><i style={{ '--bar-width': `${(item.calls / maxDomainCalls) * 100}%` } as CSSProperties} /></div><strong>{formatNumber(item.calls)}</strong></div>
+              ))}
+              {!domains.length && <MiniEmpty label="当前视角暂无业务域数据" />}
+            </div>
+          </CockpitPanel>
+        </div>
+
+        <div className="cockpit-column right">
+          <CockpitPanel title="审批时效与责任" code="WORKFLOW">
+            <div className="cockpit-approval-list">
+              {pending.slice(0, 4).map((request) => {
+                const sla = getApprovalSla(request);
+                return <div key={request.id}><span className={`mini-sla ${sla.state}`}>{sla.label}</span><p><strong>{request.asset_name}</strong><small>{scopeLabels[request.from_scope]} → {scopeLabels[request.target_scope]}</small></p><time>{sla.hours.toFixed(1)}h</time></div>;
+              })}
+              {!pending.length && <MiniEmpty label="当前视角没有待审批事项" />}
+            </div>
+          </CockpitPanel>
+          <CockpitPanel title="风险与实时留痕" code="RISK & AUDIT">
+            <div className="risk-list">
+              {riskAssets.map((asset) => <div key={asset.id}><span className="risk-mark">!</span><p><strong>{asset.name}</strong><small>{!asset.is_online ? '资产离线' : Number(asset.success_rate) < 98 ? `成功率 ${Number(asset.success_rate).toFixed(1)}%` : asset.lifecycle}</small></p><span>{typeMeta[asset.asset_type].short}</span></div>)}
+              {!riskAssets.length && <div className="all-healthy"><span>✓</span><p><strong>当前资产健康</strong><small>未发现离线、低成功率或待治理资产</small></p></div>}
+            </div>
+            <div className="audit-ticker">
+              {data.events.slice(0, 3).map((event) => <div key={event.id}><time>{formatDateTime(event.created_at)}</time><p><strong>{event.title}</strong><small>{event.detail}</small></p></div>)}
+              {!data.events.length && <MiniEmpty label="暂无活动留痕" />}
+            </div>
+          </CockpitPanel>
+        </div>
+      </div>
+
+      <div className="cockpit-domain-grid">
+        {domains.slice(0, 6).map(([name, item], index) => (
+          <article key={name}><span className="domain-index">0{index + 1}</span><div><small>业务域</small><strong>{name}</strong></div><dl><div><dt>资产</dt><dd>{item.assets}</dd></div><div><dt>调用</dt><dd>{formatNumber(item.calls)}</dd></div><div><dt>在线率</dt><dd>{item.assets ? ((item.online / item.assets) * 100).toFixed(0) : 0}%</dd></div><div><dt>成本</dt><dd>{formatMoney(item.cost)}</dd></div></dl></article>
+        ))}
+      </div>
+
+      <footer className="cockpit-footer"><span><i />InsForge 实时数据</span><span>数据刷新于 {clock}</span><strong>资产有边界 · 流程有责任 · 操作有留痕</strong><span>InsightFlow Enterprise</span></footer>
+    </div>
+  );
+}
+
+function CockpitKpi({ label, value, suffix, code, tone }: {
+  label: string;
+  value: string;
+  suffix: string;
+  code: string;
+  tone: string;
+}) {
+  return <article className={`cockpit-kpi ${tone}`}><div><span>{code}</span><i /></div><small>{label}</small><p><strong>{value}</strong><span>{suffix}</span></p></article>;
+}
+
+function CockpitPanel({ title, code, children }: { title: string; code: string; children: React.ReactNode }) {
+  return <section className="cockpit-panel"><header><h3>{title}</h3><span>{code}</span></header><div className="cockpit-panel-body">{children}</div></section>;
+}
+
+function HealthRing({ label, value, tone }: { label: string; value: number; tone: string }) {
+  const safeValue = Math.min(100, Math.max(0, value));
+  return <div className="health-ring"><div style={{ '--ring-value': `${safeValue * 3.6}deg`, '--ring-tone': tone } as CSSProperties}><span>{safeValue.toFixed(0)}<small>%</small></span></div><strong>{label}</strong></div>;
+}
+
+function MiniEmpty({ label }: { label: string }) {
+  return <div className="mini-empty"><span>✓</span>{label}</div>;
+}
+
+function PanelHeader({ title, subtitle, action }: { title: string; subtitle: string; action?: React.ReactNode }) {
+  return <header className="panel-head"><div><h3>{title}</h3><p>{subtitle}</p></div>{action}</header>;
+}
+
+function AssetGlyph({ type }: { type: AssetType }) {
+  return <span className="asset-glyph" style={{ color: typeMeta[type].color, background: typeMeta[type].soft }}>{typeMeta[type].short}</span>;
+}
+
+function CreateAssetModal({ onClose, onSubmit, role, submitting }: {
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  role: Role;
+  submitting: boolean;
+}) {
+  const scopes = getCreateScopes(role);
+  const [selectedScope, setSelectedScope] = useState<AssetScope>(scopes[0]);
+  const allowedTypes = getCreateAssetTypes(role, selectedScope);
+  const [selectedType, setSelectedType] = useState<AssetType>(allowedTypes[0]);
+
+  const changeScope = (nextScope: AssetScope) => {
+    setSelectedScope(nextScope);
+    const nextTypes = getCreateAssetTypes(role, nextScope);
+    if (!nextTypes.includes(selectedType)) setSelectedType(nextTypes[0]);
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <form className="modal" onSubmit={onSubmit} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-head"><div><p className="eyebrow">Create governed asset</p><h2>新建数字资产</h2><span>按当前身份限制可创建范围，成功后同步记录活动留痕。</span></div><button aria-label="关闭" onClick={onClose} type="button">×</button></div>
+        <section className="modal-policy"><span>权</span><div><small>{roleMeta[role].label} · 创建边界</small><strong>可创建 {scopes.map((item) => scopeLabels[item]).join('、')}</strong></div></section>
+        <label>资产名称<input name="name" required minLength={2} maxLength={80} placeholder="例如：采购异常分析助手" /></label>
+        <div className="form-grid">
+          <label>资产类型<select name="assetType" value={selectedType} onChange={(event) => setSelectedType(event.target.value as AssetType)}>{allowedTypes.map((item) => <option key={item} value={item}>{typeMeta[item].label}</option>)}</select></label>
+          <label>所属范围<select name="scope" value={selectedScope} onChange={(event) => changeScope(event.target.value as AssetScope)}>{scopes.map((item) => <option key={item} value={item}>{scopeLabels[item]}</option>)}</select></label>
+        </div>
+        <label>资产说明<textarea name="description" required minLength={8} maxLength={500} rows={4} placeholder="说明资产解决什么业务问题、服务谁、如何判断有效" /></label>
+        <div className="form-note"><span>i</span><p><strong>真实写入 InsForge</strong>资产主数据写入 assets；创建人、角色与范围写入 activity_events。</p></div>
+        <div className="modal-actions"><button className="secondary-button" onClick={onClose} type="button">取消</button><button className="primary-button" disabled={submitting} type="submit">{submitting ? '正在创建…' : '创建并留痕'}</button></div>
+      </form>
+    </div>
+  );
+}
+
+function AssetDrawer({ asset, hasPendingApproval, onClose, onPromote, role, submitting }: {
+  asset: Asset;
+  hasPendingApproval: boolean;
+  onClose: () => void;
   onPromote: (asset: Asset) => void;
   role: Role;
   submitting: boolean;
 }) {
-  return <>
-    <div className="section-heading"><div><h2>统一资产目录</h2><p>管理智能体、应用、Skills、知识库与 MCP</p></div><ScopeTabs scope={scope} onScope={onScope} /></div>
-    <article className="panel catalog-panel">
-      <div className="catalog-toolbar">
-        <label className="search-box"><span>⌕</span><input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="搜索资产名称、来源或团队" /></label>
-        <select value={type} onChange={(event) => onType(event.target.value as TypeFilter)} aria-label="资产类型">
-          <option value="all">全部类型</option>{(Object.keys(typeMeta) as AssetType[]).map((item) => <option key={item} value={item}>{typeMeta[item].label}</option>)}
-        </select>
-        <span className="result-count">共 {assets.length} 项</span>
-      </div>
-      <div className="table-wrap"><table><thead><tr><th>资产</th><th>范围 / 所属</th><th>运行状态</th><th>本月调用</th><th>成功率</th><th>更新时间</th><th>操作</th></tr></thead><tbody>
-        {assets.map((asset) => {
-          const canPromote = (role === 'personal' && asset.scope === 'personal') || (role === 'team_admin' && asset.scope === 'team');
-          return <tr key={asset.id}><td><button className="asset-name" onClick={() => onAsset(asset)} type="button"><TypeIcon type={asset.asset_type} /><span><strong>{asset.name}</strong><small>{typeMeta[asset.asset_type].label} · {asset.version}</small></span></button></td><td><span className={`scope-chip ${asset.scope}`}>{scopeLabels[asset.scope]}</span><small className="table-subtext">{asset.team_name}</small></td><td><span className={asset.is_online ? 'status online' : 'status'}>{asset.is_online ? '运行中' : asset.lifecycle}</span></td><td><strong>{formatNumber(Number(asset.calls))}</strong></td><td><span className="success-number">{Number(asset.success_rate).toFixed(2)}%</span></td><td><span>{relativeTime(asset.updated_at)}</span></td><td><div className="row-actions"><button onClick={() => onAsset(asset)} type="button">详情</button>{canPromote && <button disabled={submitting} onClick={() => void onPromote(asset)} type="button">晋级</button>}</div></td></tr>;
-        })}
-      </tbody></table>{assets.length === 0 && <EmptyState title="没有匹配的资产" description="调整搜索词或筛选条件后再试" />}</div>
-    </article>
-  </>;
-}
+  const access = getAssetAccess(role, asset);
+  const canPromote = canPromoteAsset(role, asset);
+  const target = getPromotionTarget(asset);
 
-function ApprovalCenter({ approvals, assets, role, onApproval, submitting }: { approvals: ApprovalRequest[]; assets: Asset[]; role: Role; onApproval: (request: ApprovalRequest, approve: boolean) => void; submitting: boolean }) {
-  return <>
-    <div className="section-heading"><div><h2>资产晋级审批</h2><p>个人资产先进入团队，团队资产再申请成为通用资产</p></div><span className="role-context">当前：{roleLabels[role]}</span></div>
-    <div className="approval-summary">
-      <article><span className="approval-icon pending">⌛</span><div><strong>{approvals.filter((item) => item.status === 'pending').length}</strong><small>待我处理</small></div></article>
-      <article><span className="approval-icon approved">✓</span><div><strong>{approvals.filter((item) => item.status === 'approved').length}</strong><small>已通过</small></div></article>
-      <article><span className="approval-icon total">◇</span><div><strong>{assets.filter((item) => item.scope !== 'personal').length}</strong><small>共享资产</small></div></article>
+  return (
+    <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}>
+      <aside className="drawer" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="drawer-head"><AssetGlyph type={asset.asset_type} /><div><small>{typeMeta[asset.asset_type].label} · {asset.version}</small><h2>{asset.name}</h2></div><button aria-label="关闭详情" onClick={onClose} type="button">×</button></div>
+        <div className="drawer-status"><span className={`scope-tag ${asset.scope}`}>{scopeLabels[asset.scope]}</span><span className={`lifecycle-tag ${lifecycleTone(asset.lifecycle)}`}>{asset.lifecycle}</span><span className={`status-dot ${asset.is_online ? 'online' : 'offline'}`}><i />{asset.is_online ? '运行中' : '已离线'}</span></div>
+
+        <section className={`drawer-access ${access.level}`}><span>{access.level === 'manage' ? '✓' : '◌'}</span><div><small>当前身份权限结论</small><strong>{access.label} · {access.reason}</strong><p>{roleMeta[role].boundary}</p></div></section>
+
+        <section><h3>资产说明</h3><p>{asset.description}</p></section>
+        <section><h3>运行表现</h3><div className="detail-metrics"><div><small>本月调用</small><strong>{formatNumber(Number(asset.calls))}</strong></div><div><small>成功率</small><strong>{Number(asset.success_rate).toFixed(2)}%</strong></div><div><small>平均时延</small><strong>{Number(asset.avg_latency).toFixed(1)}s</strong></div><div><small>本月成本</small><strong>{formatMoney(Number(asset.monthly_cost))}</strong></div></div></section>
+        <section><h3>责任与元数据</h3><dl><div><dt>资产负责人</dt><dd>{asset.owner_name}</dd></div><div><dt>所属团队</dt><dd>{asset.team_name}</dd></div><div><dt>业务域</dt><dd>{asset.domain}</dd></div><div><dt>资产来源</dt><dd>{asset.source}</dd></div><div><dt>最近更新</dt><dd>{formatDateTime(asset.updated_at)}</dd></div><div><dt>资产 ID</dt><dd className="mono">{asset.id.slice(0, 12)}…</dd></div></dl></section>
+        <section><h3>治理路径</h3><div className="drawer-governance"><span>{scopeLabels[asset.scope]}</span><b>当前范围</b>{asset.scope !== 'common' && <><i>→</i><span>{target.label}</span><b>{target.approver}审批</b></>}</div><p className="drawer-governance-note">关键创建、晋级与审批动作均进入活动留痕。生产环境应由服务端写入不可变审计记录。</p></section>
+        {canPromote && <button className="primary-button drawer-action" disabled={submitting || hasPendingApproval} onClick={() => void onPromote(asset)} type="button">{hasPendingApproval ? '已有申请等待处理' : `申请晋级为${target.label}`}</button>}
+      </aside>
     </div>
-    <article className="panel approval-list">
-      <div className="panel-head"><div><h3>{role === 'personal' ? '我的申请' : '审批队列'}</h3><p>审批结果将实时写回 InsForge</p></div></div>
-      {approvals.length === 0 ? <EmptyState title="当前没有审批记录" description="切换演示身份，或先从资产目录提交晋级" /> : approvals.map((request) => {
-        const asset = assets.find((item) => item.id === request.asset_id);
-        const canHandle = request.status === 'pending' && role !== 'personal' && request.approver_role === role;
-        return <div className="approval-row" key={request.id}>
-          <TypeIcon type={asset?.asset_type || 'agent'} />
-          <div className="approval-main"><div><strong>{request.asset_name}</strong><span className={`approval-status ${request.status}`}>{request.status === 'pending' ? '待审批' : request.status === 'approved' ? '已通过' : '已驳回'}</span></div><p>{request.note}</p><small>{request.requester} · {relativeTime(request.submitted_at)}</small></div>
-          <div className="scope-flow"><span className={`scope-chip ${request.from_scope}`}>{scopeLabels[request.from_scope]}</span><b>→</b><span className={`scope-chip ${request.target_scope}`}>{scopeLabels[request.target_scope]}</span></div>
-          {canHandle ? <div className="approval-actions"><button disabled={submitting} onClick={() => void onApproval(request, false)} type="button">驳回</button><button className="approve" disabled={submitting} onClick={() => void onApproval(request, true)} type="button">通过</button></div> : <span className="handled-time">{request.handled_at ? relativeTime(request.handled_at) : '等待处理'}</span>}
-        </div>;
-      })}
-    </article>
-  </>;
+  );
 }
 
-function Cockpit({ data }: { data: DashboardData }) {
-  const metrics = summarizeAssets(data.assets);
-  const counts = countByType(data.assets);
-  return <div className="cockpit">
-    <div className="cockpit-title"><span /><div><p>AI ASSET OPERATION CENTER</p><h2>集团 AI 资产运营驾驶舱</h2></div><span /></div>
-    <div className="cockpit-kpis"><article><small>资产总量</small><strong>{data.assets.length}</strong><span>项</span></article><article><small>本月调用</small><strong>{formatNumber(metrics.calls)}</strong><span>次</span></article><article><small>在线服务</small><strong>{metrics.online}</strong><span>个</span></article><article><small>稳定成功率</small><strong>{metrics.successRate.toFixed(2)}</strong><span>%</span></article></div>
-    <div className="cockpit-grid">
-      <article className="cockpit-panel"><h3>资产能力矩阵</h3><div className="radar-wrap"><div className="radar"><i /><i /><i /><span>AI</span></div><div className="radar-labels">{(Object.keys(typeMeta) as AssetType[]).map((item) => <p key={item}><span style={{ background: typeMeta[item].color }} />{typeMeta[item].label}<strong>{counts[item]}</strong></p>)}</div></div></article>
-      <article className="cockpit-panel map-panel"><h3>全域运营热力</h3><div className="network-map">{data.assets.slice(0, 10).map((asset, index) => <span key={asset.id} style={{ '--x': `${12 + ((index * 29) % 76)}%`, '--y': `${15 + ((index * 37) % 68)}%`, '--c': typeMeta[asset.asset_type].color } as React.CSSProperties} title={asset.name}><i /></span>)}<div className="map-center">AI<br /><small>资产中枢</small></div></div></article>
-      <article className="cockpit-panel"><h3>实时运行动态</h3><div className="cockpit-feed">{data.events.slice(0, 6).map((event) => <div key={event.id}><time>{new Date(event.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time><span><strong>{event.title}</strong><small>{event.detail}</small></span></div>)}</div></article>
-    </div>
-    <div className="cockpit-bottom"><div><span>服务状态</span><strong><i /> 正常</strong></div><div><span>待审批</span><strong>{data.approvals.filter((item) => item.status === 'pending').length}</strong></div><div><span>InsForge</span><strong><i /> 已连接</strong></div><div><span>数据更新时间</span><strong>{new Date().toLocaleTimeString('zh-CN')}</strong></div></div>
-  </div>;
+function EmptyState({ title, detail }: { title: string; detail: string }) {
+  return <div className="empty-state"><span>◇</span><strong>{title}</strong><p>{detail}</p></div>;
 }
 
-function AssetDrawer({ asset, role, onClose, onPromote, submitting }: { asset: Asset; role: Role; onClose: () => void; onPromote: (asset: Asset) => void; submitting: boolean }) {
-  const canPromote = (role === 'personal' && asset.scope === 'personal') || (role === 'team_admin' && asset.scope === 'team');
-  return <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}><aside className="drawer" onMouseDown={(event) => event.stopPropagation()}>
-    <div className="drawer-head"><TypeIcon type={asset.asset_type} /><div><small>{typeMeta[asset.asset_type].label} · {asset.version}</small><h2>{asset.name}</h2></div><button onClick={onClose} type="button">×</button></div>
-    <div className="drawer-status"><span className={asset.is_online ? 'status online' : 'status'}>{asset.is_online ? '运行中' : asset.lifecycle}</span><span className={`scope-chip ${asset.scope}`}>{scopeLabels[asset.scope]}</span></div>
-    <section><h3>资产说明</h3><p>{asset.description}</p></section>
-    <section><h3>运营表现</h3><div className="detail-metrics"><div><small>本月调用</small><strong>{formatNumber(Number(asset.calls))}</strong></div><div><small>成功率</small><strong>{Number(asset.success_rate).toFixed(2)}%</strong></div><div><small>平均响应</small><strong>{Number(asset.avg_latency).toFixed(2)}s</strong></div><div><small>月度成本</small><strong>{formatMoney(Number(asset.monthly_cost))}</strong></div></div></section>
-    <section><h3>基本信息</h3><dl><div><dt>资产来源</dt><dd>{asset.source}</dd></div><div><dt>负责人</dt><dd>{asset.owner_name}</dd></div><div><dt>所属团队</dt><dd>{asset.team_name}</dd></div><div><dt>业务领域</dt><dd>{asset.domain}</dd></div><div><dt>生命周期</dt><dd>{asset.lifecycle}</dd></div><div><dt>最近更新</dt><dd>{relativeTime(asset.updated_at)}</dd></div></dl></section>
-    {canPromote && <button className="primary-button drawer-action" disabled={submitting} onClick={() => void onPromote(asset)} type="button">申请晋级为{asset.scope === 'personal' ? '团队' : '通用'}资产</button>}
-  </aside></div>;
-}
-
-function LoadingState() {
-  return <div className="loading-state"><div className="loading-logo">A</div><strong>正在连接 InsForge</strong><span>读取资产、审批与运营动态…</span></div>;
-}
-
-function EmptyState({ title, description }: { title: string; description: string }) {
-  return <div className="empty-state"><span>◇</span><strong>{title}</strong><p>{description}</p></div>;
+function LoadingState({ fullPage = false }: { fullPage?: boolean }) {
+  return <div className={fullPage ? 'loading-state full-page' : 'loading-state'}><span className="loading-logo">IF</span><strong>正在同步企业资产数据</strong><p>连接 InsForge 资产、审批与活动留痕</p></div>;
 }
 
 export default App;
