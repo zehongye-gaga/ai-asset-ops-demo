@@ -24,7 +24,9 @@ app.get('/config.js', (_request, response) => {
 });
 
 app.use(express.static(dist, { maxAge: '1h', index: false }));
-app.get('*path', (_request, response) => response.sendFile(path.join(dist, 'index.html')));
+app.get('*path', (_request, response) => {
+  response.set('Cache-Control', 'no-store').sendFile(path.join(dist, 'index.html'));
+});
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`AI asset operations demo listening on ${port}`);
