@@ -28,17 +28,17 @@ describe('InsForge governed writes', () => {
       assetType: 'agent',
       scope: 'personal',
       description: '用于验证资产创建活动留痕',
-    }, { actorName: '叶泽宏', actorRole: 'personal' });
+    }, { actorName: 'Alex Chen', actorRole: 'personal' });
 
     expect(assetInsert).toHaveBeenCalledWith(expect.objectContaining({
-      owner_name: '叶泽宏',
+      owner_name: 'Alex Chen',
       team_name: '研发中心',
       scope: 'personal',
     }));
     expect(eventInsert).toHaveBeenCalledWith(expect.objectContaining({
       event_type: 'asset_created',
       title: '数字资产已创建',
-      detail: expect.stringContaining('叶泽宏（个人用户）'),
+      detail: expect.stringContaining('Alex Chen（个人用户）'),
     }));
   });
 
@@ -50,12 +50,12 @@ describe('InsForge governed writes', () => {
     ));
 
     await submitPromotion(assetFixture({ scope: 'team', owner_name: '原负责人' }), {
-      actorName: '叶泽宏',
+      actorName: 'Alex Chen',
       actorRole: 'team_admin',
     });
 
     expect(approvalInsert).toHaveBeenCalledWith(expect.objectContaining({
-      requester: '叶泽宏',
+      requester: 'Alex Chen',
       from_scope: 'team',
       target_scope: 'common',
       approver_role: 'system_admin',
@@ -87,7 +87,7 @@ describe('InsForge governed writes', () => {
       return { insert: eventInsert };
     });
 
-    await handleApproval(request, true, { actorName: '叶泽宏', actorRole: 'team_admin' });
+    await handleApproval(request, true, { actorName: 'Alex Chen', actorRole: 'team_admin' });
 
     expect(approvalUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'approved' }));
     expect(approvalUpdateEq).toHaveBeenCalledWith('id', request.id);
@@ -95,7 +95,7 @@ describe('InsForge governed writes', () => {
     expect(assetUpdateEq).toHaveBeenCalledWith('id', request.asset_id);
     expect(eventInsert).toHaveBeenCalledWith(expect.objectContaining({
       title: '资产晋级已通过',
-      detail: expect.stringContaining('叶泽宏（团队管理员）通过'),
+      detail: expect.stringContaining('Alex Chen（团队管理员）通过'),
       severity: 'success',
     }));
   });

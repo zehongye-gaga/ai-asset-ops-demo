@@ -6,12 +6,13 @@ const APPROVAL_SLA_HOURS = 24;
 export function filterAssetsForCockpit(
   assets: Asset[],
   view: CockpitView,
-  currentUser = '叶泽宏',
+  currentUsers: string | readonly string[] = 'Alex Chen',
   currentTeam = '研发中心',
 ) {
   if (view === 'global') return assets;
   if (view === 'personal') {
-    return assets.filter((asset) => asset.scope === 'personal' && asset.owner_name === currentUser);
+    const userNames = new Set(typeof currentUsers === 'string' ? [currentUsers] : currentUsers);
+    return assets.filter((asset) => asset.scope === 'personal' && userNames.has(asset.owner_name));
   }
   return assets.filter((asset) => asset.scope === 'team' && asset.team_name === currentTeam);
 }

@@ -3,11 +3,14 @@ import type { CSSProperties } from 'react';
 import {
   CURRENT_TEAM,
   CURRENT_USER,
+  CURRENT_USER_NAMES,
   canCreateAsset,
   canCreateInScope,
   canHandleApproval,
   canPromoteAsset,
   canViewAsset,
+  displayUserName,
+  displayUserReferences,
   getApprovalResponsibility,
   getAssetAccess,
   getCockpitViews,
@@ -212,7 +215,7 @@ function App() {
   const filteredAssets = useMemo(() => visibleAssets.filter((asset) => {
     const matchesScope = scope === 'all' || asset.scope === scope;
     const matchesType = type === 'all' || asset.asset_type === type;
-    const search = `${asset.name} ${asset.description} ${asset.source} ${asset.team_name} ${asset.owner_name} ${asset.domain}`.toLowerCase();
+    const search = `${asset.name} ${asset.description} ${asset.source} ${asset.team_name} ${asset.owner_name} ${displayUserName(asset.owner_name)} ${asset.domain}`.toLowerCase();
     return matchesScope && matchesType && search.includes(query.trim().toLowerCase());
   }), [query, scope, type, visibleAssets]);
 
@@ -469,7 +472,7 @@ function App() {
               <span className={refreshing ? 'spin' : ''}><LineIcon name="refresh" /></span>
             </button>
             <label className="role-picker">
-              <span className="avatar">叶</span>
+              <span className="avatar">AC</span>
               <span className="role-picker-copy">
                 <small>演示身份 · {roleMeta[role].shortLabel}</small>
                 <select value={role} onChange={(event) => changeRole(event.target.value as Role)} aria-label="演示身份">
@@ -622,7 +625,7 @@ function Overview({ assets, data, onAsset, onScope, onView, role, scope }: {
 
       <section className="identity-policy-card">
         <div className="identity-block">
-          <span className="identity-avatar">叶</span>
+          <span className="identity-avatar">AC</span>
           <div><small>当前演示身份</small><strong>{roleMeta[role].label}</strong><span>{CURRENT_USER} · {CURRENT_TEAM}</span></div>
         </div>
         <div className="policy-divider" />
@@ -693,7 +696,7 @@ function Overview({ assets, data, onAsset, onScope, onView, role, scope }: {
             {topAssets.length ? topAssets.map((asset) => (
               <button className="compact-row" key={asset.id} onClick={() => onAsset(asset)} type="button">
                 <AssetGlyph type={asset.asset_type} />
-                <span className="compact-main"><strong>{asset.name}</strong><small>{asset.domain} · {asset.owner_name}</small></span>
+                <span className="compact-main"><strong>{asset.name}</strong><small>{asset.domain} · {displayUserName(asset.owner_name)}</small></span>
                 <span className={`status-dot ${asset.is_online ? 'online' : 'offline'}`}><i />{asset.is_online ? '在线' : '离线'}</span>
                 <span><strong>{formatNumber(Number(asset.calls))}</strong><small>本月调用</small></span>
                 <span><strong>{Number(asset.success_rate).toFixed(1)}%</strong><small>成功率</small></span>
@@ -709,7 +712,7 @@ function Overview({ assets, data, onAsset, onScope, onView, role, scope }: {
             {data.events.slice(0, 6).map((event) => (
               <div className="activity-item" key={event.id}>
                 <span className={`activity-marker ${event.severity}`} />
-                <div><strong>{event.title}</strong><p>{event.detail}</p><small>{relativeTime(event.created_at)} · Trace {event.id.slice(0, 8)}</small></div>
+                <div><strong>{displayUserReferences(event.title)}</strong><p>{displayUserReferences(event.detail)}</p><small>{relativeTime(event.created_at)} · Trace {event.id.slice(0, 8)}</small></div>
               </div>
             ))}
             {!data.events.length && <EmptyState title="暂无治理动态" detail="创建或审批资产后会在这里留痕" />}
@@ -812,7 +815,7 @@ function AssetCatalog({ approvals, assets, onAsset, onPromote, onQuery, onScope,
               <div className="asset-table-row" key={asset.id}>
                 <div className="asset-name-cell"><AssetGlyph type={asset.asset_type} /><span><strong>{asset.name}</strong><small>{typeMeta[asset.asset_type].label} · {asset.version} · {asset.source}</small></span></div>
                 <div><span className={`scope-tag ${asset.scope}`}>{scopeLabels[asset.scope]}</span><span className={`lifecycle-tag ${lifecycleTone(asset.lifecycle)}`}>{asset.lifecycle}</span></div>
-                <div className="owner-cell"><strong>{asset.owner_name}</strong><small>{asset.team_name} · {asset.domain}</small></div>
+                <div className="owner-cell"><strong>{displayUserName(asset.owner_name)}</strong><small>{asset.team_name} · {asset.domain}</small></div>
                 <div className="performance-cell"><strong>{formatNumber(Number(asset.calls))} 次</strong><small>{Number(asset.success_rate).toFixed(1)}% · {Number(asset.avg_latency).toFixed(1)}s</small></div>
                 <div><span className={`access-badge ${access.level}`}><i />{access.label}</span><small className="access-reason">{access.reason}</small></div>
                 <div className="table-actions">
@@ -867,7 +870,7 @@ function ApprovalCenter({ approvals, assets, onApproval, role, submitting }: {
             const canHandle = canHandleApproval(role, request, asset);
             return (
               <div className="approval-row" key={request.id}>
-                <div className="approval-asset"><AssetGlyph type={asset?.asset_type || 'agent'} /><span><strong>{request.asset_name}</strong><small>{request.requester} · {formatDateTime(request.submitted_at)}</small><p>{request.note}</p></span></div>
+                <div className="approval-asset"><AssetGlyph type={asset?.asset_type || 'agent'} /><span><strong>{request.asset_name}</strong><small>{displayUserName(request.requester)} · {formatDateTime(request.submitted_at)}</small><p>{displayUserReferences(request.note)}</p></span></div>
                 <div className="approval-scope-flow"><span className={`scope-tag ${request.from_scope}`}>{scopeLabels[request.from_scope]}</span><b>→</b><span className={`scope-tag ${request.target_scope}`}>{scopeLabels[request.target_scope]}</span></div>
                 <div className="approval-responsibility"><strong>{getApprovalResponsibility(request)}</strong><small>提交人与审批职责分离</small></div>
                 <div><span className={`sla-badge ${sla.state}`}>{sla.label}</span><small className="sla-time">{request.status === 'pending' ? `已等待 ${sla.hours.toFixed(1)}h` : `处理于 ${request.handled_at ? formatDateTime(request.handled_at) : '—'}`}</small></div>
@@ -927,7 +930,7 @@ function Cockpit({ data, onBack, onError, role }: {
   };
 
   const roleVisibleAssets = data.assets.filter((asset) => canViewAsset(role, asset));
-  const assets = filterAssetsForCockpit(roleVisibleAssets, cockpitView, CURRENT_USER, CURRENT_TEAM);
+  const assets = filterAssetsForCockpit(roleVisibleAssets, cockpitView, CURRENT_USER_NAMES, CURRENT_TEAM);
   const metrics = summarizeAssets(assets);
   const governance = summarizeGovernance(data, assets);
   const lifecycles = Object.entries(countByLifecycle(assets)).sort((left, right) => right[1] - left[1]);
@@ -1024,7 +1027,7 @@ function Cockpit({ data, onBack, onError, role }: {
               {!riskAssets.length && <div className="all-healthy"><span>✓</span><p><strong>当前资产健康</strong><small>未发现离线、低成功率或待治理资产</small></p></div>}
             </div>
             <div className="audit-ticker">
-              {data.events.slice(0, 3).map((event) => <div key={event.id}><time>{formatDateTime(event.created_at)}</time><p><strong>{event.title}</strong><small>{event.detail}</small></p></div>)}
+              {data.events.slice(0, 3).map((event) => <div key={event.id}><time>{formatDateTime(event.created_at)}</time><p><strong>{displayUserReferences(event.title)}</strong><small>{displayUserReferences(event.detail)}</small></p></div>)}
               {!data.events.length && <MiniEmpty label="暂无活动留痕" />}
             </div>
           </CockpitPanel>
@@ -1130,7 +1133,7 @@ function AssetDrawer({ asset, hasPendingApproval, onClose, onPromote, role, subm
 
         <section><h3>资产说明</h3><p>{asset.description}</p></section>
         <section><h3>运行表现</h3><div className="detail-metrics"><div><small>本月调用</small><strong>{formatNumber(Number(asset.calls))}</strong></div><div><small>成功率</small><strong>{Number(asset.success_rate).toFixed(2)}%</strong></div><div><small>平均时延</small><strong>{Number(asset.avg_latency).toFixed(1)}s</strong></div><div><small>本月成本</small><strong>{formatMoney(Number(asset.monthly_cost))}</strong></div></div></section>
-        <section><h3>责任与元数据</h3><dl><div><dt>资产负责人</dt><dd>{asset.owner_name}</dd></div><div><dt>所属团队</dt><dd>{asset.team_name}</dd></div><div><dt>业务域</dt><dd>{asset.domain}</dd></div><div><dt>资产来源</dt><dd>{asset.source}</dd></div><div><dt>最近更新</dt><dd>{formatDateTime(asset.updated_at)}</dd></div><div><dt>资产 ID</dt><dd className="mono">{asset.id.slice(0, 12)}…</dd></div></dl></section>
+        <section><h3>责任与元数据</h3><dl><div><dt>资产负责人</dt><dd>{displayUserName(asset.owner_name)}</dd></div><div><dt>所属团队</dt><dd>{asset.team_name}</dd></div><div><dt>业务域</dt><dd>{asset.domain}</dd></div><div><dt>资产来源</dt><dd>{asset.source}</dd></div><div><dt>最近更新</dt><dd>{formatDateTime(asset.updated_at)}</dd></div><div><dt>资产 ID</dt><dd className="mono">{asset.id.slice(0, 12)}…</dd></div></dl></section>
         <section><h3>治理路径</h3><div className="drawer-governance"><span>{scopeLabels[asset.scope]}</span><b>当前范围</b>{asset.scope !== 'common' && <><i>→</i><span>{target.label}</span><b>{target.approver}审批</b></>}</div><p className="drawer-governance-note">关键创建、晋级与审批动作均进入活动留痕。生产环境应由服务端写入不可变审计记录。</p></section>
         {canPromote && <button className="primary-button drawer-action" disabled={submitting || hasPendingApproval} onClick={() => void onPromote(asset)} type="button">{hasPendingApproval ? '已有申请等待处理' : `申请晋级为${target.label}`}</button>}
       </aside>

@@ -15,13 +15,15 @@ describe('governance metrics', () => {
       assetFixture({ id: 'common', scope: 'common' }),
       assetFixture({ id: 'team', scope: 'team', team_name: '研发中心' }),
       assetFixture({ id: 'other-team', scope: 'team', team_name: '法务部' }),
-      assetFixture({ id: 'mine', scope: 'personal', owner_name: '叶泽宏' }),
+      assetFixture({ id: 'mine', scope: 'personal', owner_name: 'Alex Chen' }),
+      assetFixture({ id: 'legacy-mine', scope: 'personal', owner_name: '叶泽宏' }),
       assetFixture({ id: 'other', scope: 'personal', owner_name: '林悦' }),
     ];
 
-    expect(filterAssetsForCockpit(assets, 'global').map((asset) => asset.id)).toEqual(['common', 'team', 'other-team', 'mine', 'other']);
+    expect(filterAssetsForCockpit(assets, 'global').map((asset) => asset.id)).toEqual(['common', 'team', 'other-team', 'mine', 'legacy-mine', 'other']);
     expect(filterAssetsForCockpit(assets, 'team').map((asset) => asset.id)).toEqual(['team']);
     expect(filterAssetsForCockpit(assets, 'personal').map((asset) => asset.id)).toEqual(['mine']);
+    expect(filterAssetsForCockpit(assets, 'personal', ['Alex Chen', '叶泽宏']).map((asset) => asset.id)).toEqual(['mine', 'legacy-mine']);
   });
 
   it('classifies runtime and lifecycle risks', () => {

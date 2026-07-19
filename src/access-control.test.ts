@@ -6,6 +6,8 @@ import {
   canManageAsset,
   canPromoteAsset,
   canViewAsset,
+  displayUserName,
+  displayUserReferences,
   getCockpitViews,
   getCreateScopes,
   getDefaultScope,
@@ -35,7 +37,7 @@ describe('enterprise access policy', () => {
     const common = assetFixture({ scope: 'common' });
     const team = assetFixture({ scope: 'team', team_name: '研发中心' });
     const otherTeam = assetFixture({ scope: 'team', team_name: '法务部' });
-    const ownPersonal = assetFixture({ scope: 'personal', owner_name: '叶泽宏' });
+    const ownPersonal = assetFixture({ scope: 'personal', owner_name: 'Alex Chen' });
     const otherPersonal = assetFixture({ scope: 'personal', owner_name: '林悦' });
 
     expect([common, team, ownPersonal, otherPersonal].map((asset) => canManageAsset('system_admin', asset)))
@@ -53,7 +55,7 @@ describe('enterprise access policy', () => {
     const common = assetFixture({ scope: 'common' });
     const currentTeam = assetFixture({ scope: 'team', team_name: '研发中心' });
     const otherTeam = assetFixture({ scope: 'team', team_name: '法务部' });
-    const ownPersonal = assetFixture({ scope: 'personal', owner_name: '叶泽宏', team_name: '研发中心' });
+    const ownPersonal = assetFixture({ scope: 'personal', owner_name: 'Alex Chen', team_name: '研发中心' });
     const teamMemberPersonal = assetFixture({ scope: 'personal', owner_name: '陈曦', team_name: '研发中心' });
 
     expect([common, currentTeam, otherTeam, ownPersonal, teamMemberPersonal].map((asset) => canViewAsset('team_admin', asset)))
@@ -63,7 +65,7 @@ describe('enterprise access policy', () => {
   });
 
   it('allows only the responsible submitter and approver at each promotion level', () => {
-    const personalAsset = assetFixture({ scope: 'personal', owner_name: '叶泽宏', team_name: '研发中心' });
+    const personalAsset = assetFixture({ scope: 'personal', owner_name: 'Alex Chen', team_name: '研发中心' });
     const teamAsset = assetFixture({ scope: 'team', team_name: '研发中心' });
     const personalRequest = approvalFixture({ approver_role: 'team_admin' });
     const commonRequest = approvalFixture({
@@ -87,7 +89,7 @@ describe('enterprise access policy', () => {
   });
 
   it('keeps own requests visible without granting approval authority', () => {
-    const ownRequest = approvalFixture({ requester: '叶泽宏', approver_role: 'team_admin' });
+    const ownRequest = approvalFixture({ requester: 'Alex Chen', approver_role: 'team_admin' });
     const otherRequest = approvalFixture({ requester: '林悦', approver_role: 'system_admin' });
 
     const ownAsset = assetFixture({ id: ownRequest.asset_id, team_name: '研发中心' });
@@ -105,5 +107,15 @@ describe('enterprise access policy', () => {
     expect(getCockpitViews('operator')).toEqual(['global', 'team']);
     expect(getCockpitViews('team_admin')).toEqual(['team', 'personal']);
     expect(getCockpitViews('personal')).toEqual(['personal']);
+  });
+
+  it('keeps legacy demo records owned while presenting the new user name', () => {
+    const legacyAsset = assetFixture({ scope: 'personal', owner_name: '叶泽宏' });
+    const legacyRequest = approvalFixture({ requester: '叶泽宏' });
+
+    expect(canManageAsset('personal', legacyAsset)).toBe(true);
+    expect(isApprovalVisible('personal', legacyRequest, legacyAsset)).toBe(true);
+    expect(displayUserName('叶泽宏')).toBe('Alex Chen');
+    expect(displayUserReferences('叶泽宏创建了个人资产')).toBe('Alex Chen创建了个人资产');
   });
 });

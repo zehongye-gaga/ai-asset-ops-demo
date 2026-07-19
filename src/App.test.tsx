@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
+import { approvalFixture, assetFixture, eventFixture } from './test/fixtures';
 
 const { loadDashboardDataMock } = vi.hoisted(() => ({
   loadDashboardDataMock: vi.fn(),
@@ -32,6 +33,7 @@ describe('management and cockpit layout boundary', () => {
     expect(await screen.findByRole('navigation', { name: '主导航' })).toBeInTheDocument();
     expect(screen.getByRole('search')).toBeInTheDocument();
     expect(screen.getByText('当前组织')).toBeInTheDocument();
+    expect(screen.getByText('Alex Chen · 研发中心')).toBeInTheDocument();
     expect(screen.getAllByText('CATL')).toHaveLength(2);
     expect(document.title).toBe('运营概览 · CATL');
     expect(screen.getByRole('link', { name: /^运营大屏/ })).toHaveAttribute('href', '/cockpit');
@@ -91,5 +93,27 @@ describe('management and cockpit layout boundary', () => {
     expect(screen.queryByRole('navigation', { name: '主导航' })).not.toBeInTheDocument();
     expect(screen.queryByRole('search')).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/cockpit');
+  });
+
+  it('shows the renamed demo identity while preserving legacy records', async () => {
+    loadDashboardDataMock.mockResolvedValue({
+      assets: [assetFixture({ id: 'legacy-asset', name: '历史个人资产', scope: 'personal', owner_name: '叶泽宏' })],
+      approvals: [approvalFixture({ id: 'legacy-approval', asset_id: 'legacy-asset', asset_name: '历史个人资产', requester: '叶泽宏' })],
+      events: [eventFixture({ id: 'legacy-event', title: '叶泽宏提交资产晋级', detail: '由叶泽宏发起治理申请' })],
+    });
+    window.history.replaceState(null, '', '/manage/overview');
+    render(<App />);
+
+    await screen.findByText('治理动态');
+    fireEvent.click(screen.getByRole('button', { name: '全部资产' }));
+    expect(await screen.findByText('历史个人资产')).toBeInTheDocument();
+    expect(screen.getByText('技术研发 · Alex Chen')).toBeInTheDocument();
+    expect(screen.getByText('Alex Chen提交资产晋级')).toBeInTheDocument();
+    expect(screen.getByText('由Alex Chen发起治理申请')).toBeInTheDocument();
+    expect(screen.queryByText(/叶泽宏/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /治理审批/ }));
+    expect(await screen.findByText(/Alex Chen ·/)).toBeInTheDocument();
+    expect(screen.queryByText(/叶泽宏/)).not.toBeInTheDocument();
   });
 });

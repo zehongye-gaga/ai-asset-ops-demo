@@ -1,7 +1,25 @@
 import type { ApprovalRequest, Asset, AssetScope, AssetType, CockpitView, Role, ScopeFilter } from './types';
 
-export const CURRENT_USER = '叶泽宏';
+export const CURRENT_USER = 'Alex Chen';
+export const LEGACY_CURRENT_USER_NAMES = ['叶泽宏'] as const;
+export const CURRENT_USER_NAMES = [CURRENT_USER, ...LEGACY_CURRENT_USER_NAMES] as const;
 export const CURRENT_TEAM = '研发中心';
+
+export function isCurrentUserName(name: string, currentUser = CURRENT_USER) {
+  if (name === currentUser) return true;
+  return currentUser === CURRENT_USER && LEGACY_CURRENT_USER_NAMES.some((legacyName) => legacyName === name);
+}
+
+export function displayUserName(name: string) {
+  return LEGACY_CURRENT_USER_NAMES.some((legacyName) => legacyName === name) ? CURRENT_USER : name;
+}
+
+export function displayUserReferences(value: string) {
+  return LEGACY_CURRENT_USER_NAMES.reduce(
+    (displayValue, legacyName) => displayValue.replaceAll(legacyName, CURRENT_USER),
+    value,
+  );
+}
 
 export const roleMeta: Record<Role, {
   label: string;
@@ -76,7 +94,7 @@ export function canCreateAsset(role: Role, scope: AssetScope, type: AssetType) {
 }
 
 function isOwnedByCurrentUser(asset: Asset, currentUser: string) {
-  return asset.owner_name === currentUser;
+  return isCurrentUserName(asset.owner_name, currentUser);
 }
 
 export function canViewAsset(
@@ -132,7 +150,7 @@ export function isApprovalVisible(
   currentUser = CURRENT_USER,
 ) {
   if (role === 'system_admin') return true;
-  if (request.requester === currentUser) return true;
+  if (isCurrentUserName(request.requester, currentUser)) return true;
   if (role === 'operator') return request.approver_role === 'system_admin';
   if (role === 'team_admin') {
     return request.approver_role === 'team_admin' && asset?.team_name === CURRENT_TEAM;
